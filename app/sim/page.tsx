@@ -152,9 +152,18 @@ export default function Page() {
         setTitle('Simulation')
       }
       setSimulationStarted(true)
+      setError(null)
     } else {
       setError('Invalid simulation code')
     }
+  }
+
+  const loadNewSimulation = () => {
+    setError(null)
+    clear()
+    setSimulationStarted(false)
+    setSimulationCode('')
+    setTitle('')
   }
 
   if (!userId) {
@@ -237,20 +246,27 @@ export default function Page() {
   return (
     <div className="h-screen p-6">
       <div className="max-w-7xl mx-auto h-full grid grid-cols-1 md:grid-cols-3 gap-6">
-         <div className="md:col-span-1 bg-white rounded shadow p-4">
-          <h2 className="font-semibold mb-2">Simulation Details</h2>
-          <div className="space-y-2 text-sm">
-            <div>
-              <p className="font-medium text-gray-800">{title}</p>
-              <p className="text-gray-500 font-mono">{simulationCode}</p>
+         <div className="md:col-span-1 bg-white rounded shadow p-4 flex flex-col justify-between">
+          <div>
+            <h2 className="font-semibold mb-2">Simulation Details</h2>
+            <div className="space-y-2 text-sm">
+              <div>
+                <p className="font-medium text-gray-800">{title}</p>
+                <p className="text-gray-500 font-mono">{simulationCode}</p>
+              </div>
+              <p className="text-gray-600 pt-2">You are participating in a simulation. Follow the instructions provided by the scenario.</p>
             </div>
-            <p className="text-gray-600 pt-2">You are participating in a simulation. Follow the instructions provided by the scenario.</p>
           </div>
-           <div className="mt-4 flex items-center justify-between">
-            <div className="text-xs text-gray-600">Logged in as: {userId}</div>
-            <button className="px-3 py-1 bg-gray-700 text-white rounded" onClick={logout}>
-              Log Out
-            </button>
+           <div className="mt-4">
+            <div className="text-xs text-gray-600 mb-2">Logged in as: {userId}</div>
+            <div className="flex items-center space-x-2">
+               <button className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700" onClick={loadNewSimulation}>
+                Load New Sim
+              </button>
+              <button className="px-3 py-1 bg-gray-700 text-white rounded text-sm hover:bg-gray-800" onClick={logout}>
+                Log Out
+              </button>
+            </div>
           </div>
         </div>
 
