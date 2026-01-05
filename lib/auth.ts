@@ -27,6 +27,7 @@ const getSessionSecret = () => {
 export const getSessionCookieName = () => COOKIE_NAME
 
 export type SessionPayload = {
+  sessionId: string
   userId: string
   iat: number
   exp: number
@@ -34,7 +35,7 @@ export type SessionPayload = {
 
 export const createSessionToken = (userId: string, ttlSeconds = 60 * 60 * 12) => {
   const now = Math.floor(Date.now() / 1000)
-  const payload: SessionPayload = { userId, iat: now, exp: now + ttlSeconds }
+  const payload: SessionPayload = { sessionId: crypto.randomUUID(), userId, iat: now, exp: now + ttlSeconds }
   const payloadB64 = base64UrlEncode(JSON.stringify(payload))
 
   const sig = crypto
@@ -66,6 +67,7 @@ export const verifySessionToken = (token: string | undefined | null): SessionPay
     const payloadStr = base64UrlDecodeToString(payloadB64)
     const payload = JSON.parse(payloadStr) as SessionPayload
     if (!payload?.userId || typeof payload.userId !== 'string') return null
+    if (!payload?.sessionId || typeof payload.sessionId !== 'string') return null
 
     const now = Math.floor(Date.now() / 1000)
     if (typeof payload.exp !== 'number' || payload.exp < now) return null

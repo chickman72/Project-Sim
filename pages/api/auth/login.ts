@@ -1,5 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { authenticateLogin, createSessionToken, getSessionCookieName } from '../../../lib/auth'
+import { authenticateLogin, createSessionToken, getSessionCookieName, verifySessionToken } from '../../../lib/auth'
 import { toAuditJson, writeAuditRecord } from '../../../lib/audit-log'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -18,6 +18,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           eventType: 'login',
           ok: false,
           userId: userId.trim() || null,
+          sessionId: null,
           clientIp: String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || ''),
           userAgent: String(req.headers['user-agent'] || ''),
           path: req.url || null,
@@ -32,6 +33,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     const token = createSessionToken(userId)
+    const session = verifySessionToken(token)
     const secure = process.env.NODE_ENV === 'production'
     const cookie = `${getSessionCookieName()}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 12}${secure ? '; Secure' : ''}`
     res.setHeader('Set-Cookie', cookie)
@@ -41,6 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         eventType: 'login',
         ok: true,
         userId: userId.trim() || null,
+        sessionId: session?.sessionId ?? null,
         clientIp: String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || ''),
         userAgent: String(req.headers['user-agent'] || ''),
         path: req.url || null,
@@ -57,6 +60,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         eventType: 'login',
         ok: false,
         userId: userId.trim() || null,
+        sessionId: null,
         clientIp: String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || ''),
         userAgent: String(req.headers['user-agent'] || ''),
         path: req.url || null,

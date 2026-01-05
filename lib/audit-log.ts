@@ -15,6 +15,7 @@ export type AuditRecord = {
   eventType: AuditEventType
   ok: boolean
   userId: string | null
+  sessionId: string | null
   clientIp: string | null
   userAgent: string | null
   path: string | null
@@ -74,21 +75,26 @@ export const createAuditId = () => crypto.randomBytes(16).toString('hex')
 
 export const writeAuditRecord = async (record: Omit<AuditRecord, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => {
   const logsDir = await ensureLogsDir()
-  const adminPath = path.join(logsDir, 'interactions.json')
-
   const id = record.id || createAuditId()
   const timestamp = record.timestamp || new Date().toISOString()
   const full: AuditRecord = { id, timestamp, ...record }
 
-  const existing = await readJsonArrayFile(adminPath)
-  existing.push(full)
-  await writeJsonArrayFile(adminPath, existing)
+  const sessionPath = record.sessionId ? path.join(logsDir, `session-${record.sessionId}.json`) : null
 
-  const stamp = timestamp.replace(/[:.]/g, '-')
-  const perPath = path.join(logsDir, `interaction-${stamp}-${id.slice(0, 8)}.json`)
-  await writeFile(perPath, JSON.stringify(full, null, 2) + '\n', 'utf8')
+  if (sessionPath) {
+    const existing = await readJsonArrayFile(sessionPath)
+    existing.push(full)
+    await writeJsonArrayFile(sessionPath, existing)
+  } else {
+    // Fallback for events without a session
+    const adminPath = path.join(logsDir, 'interactions.json')
+    const existing = await readJsonArrayFile(adminPath)
+    existing.push(full)
+    await writeJsonArrayFile(adminPath, existing)
+  }
 
-  return { adminPath, perPath, id }
+
+  return { id }
 }
 
 export const toAuditJson = (value: unknown) => safeStringify(value)
