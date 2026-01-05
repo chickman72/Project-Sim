@@ -15,6 +15,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       eventType: 'logout',
       ok: true,
       userId: session?.userId || null,
+      sessionId: session?.sessionId || null,
       clientIp: String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || ''),
       userAgent: String(req.headers['user-agent'] || ''),
       path: req.url || null,
