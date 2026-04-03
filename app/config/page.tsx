@@ -9,7 +9,7 @@ type Store = {
 }
 
 const useStore = create<Store>((set) => ({
-  systemPrompt: 'You are a helpful assistant.',
+  systemPrompt: 'You are the patient in this scenario. Respond in English only.',
   setSystemPrompt: (s) => set({ systemPrompt: s }),
 }))
 
@@ -18,34 +18,60 @@ export default function Page() {
   const setSystemPrompt = useStore((s) => s.setSystemPrompt)
 
   const [userId, setUserId] = useState<string | null>(null)
+  const [userName, setUserName] = useState<string | null>(null)
+  const [userRole, setUserRole] = useState<'Administrator' | 'Instructor' | 'Student' | null>(null)
   const [loginId, setLoginId] = useState('')
   const [password, setPassword] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
+  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [simulationCode, setSimulationCode] = useState<string | null>(null)
   const [isDirty, setIsDirty] = useState(false)
   const [title, setTitle] = useState('')
-  const [setups, setSetups] = useState<{ code: string; prompt: string; title: string }[]>([])
+  const [description, setDescription] = useState('')
+  const [setups, setSetups] = useState<{ code: string; prompt: string; title: string; description: string }[]>([])
 
   useEffect(() => {
-    const savedSetups = localStorage.getItem('simulation-setups')
-    if (savedSetups) {
-      const parsedSetups = JSON.parse(savedSetups)
-      // Ensure all setups have a title property for backward compatibility
-      const setupsWithTitles = parsedSetups.map((s: any) => ({ ...s, title: s.title || '' }))
-      setSetups(setupsWithTitles)
+    if (!userId) {
+      setSetups([])
+      return
     }
-  }, [])
+    ;(async () => {
+      try {
+        const resp = await fetch('/api/setups')
+        if (resp.ok) {
+          const data = await resp.json()
+          const setupsWithTitles = data.map((s: any) => ({ ...s, title: s.title || '', description: s.description || '' }))
+          setSetups(setupsWithTitles)
+        }
+      } catch {
+        // ignore
+      }
+    })()
+  }, [userId])
 
   useEffect(() => {
     ;(async () => {
       try {
         const resp = await fetch('/api/auth/me')
-        if (!resp.ok) return
+        if (!resp.ok) {
+          setError('Not authenticated')
+          return
+        }
         const data = await resp.json()
-        if (data?.userId) setUserId(String(data.userId))
+        if (!data?.userId) {
+          setError('Not authenticated')
+          return
+        }
+        if (data.role === 'Student') {
+          setError('Access denied. Instructor or Administrator role required.')
+          return
+        }
+        setUserId(String(data.userId))
+        setUserName(data.username || String(data.userId))
+        setUserRole(data.role || null)
       } catch {
-        // ignore
+        setError('Not authenticated')
       }
     })()
   }, [])
@@ -67,6 +93,8 @@ export default function Page() {
         throw new Error(String(detail))
       }
       setUserId(String(data.userId || loginId))
+      setUserName(data.username || loginId)
+      setUserRole(data.role || null)
       setPassword('')
     } catch (err: any) {
       setError(err.message || 'Login failed')
@@ -81,47 +109,77 @@ export default function Page() {
       await fetch('/api/auth/logout', { method: 'POST' })
     } finally {
       setUserId(null)
+      setUserName(null)
+      setUserRole(null)
       setLoginId('')
       setPassword('')
     }
   }
 
-  const saveSetup = () => {
-    const setupData = { title, prompt: systemPrompt }
-    if (simulationCode && setups.some(s => s.code === simulationCode)) {
-      // Update existing setup
-      const newSetups = setups.map(s =>
-        s.code === simulationCode ? { ...s, ...setupData } : s
-      )
+  const saveSetup = async () => {
+    const codeToUse = simulationCode || Math.random().toString(36).substring(2, 8).toUpperCase()
+    const setupData = { code: codeToUse, title, description, prompt: systemPrompt }
+    
+    try {
+      const resp = await fetch('/api/setups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(setupData)
+      })
+      if (!resp.ok) throw new Error('Failed to save setup')
+      
+      const newSetups = setups.filter(s => s.code !== codeToUse)
+      newSetups.push(setupData)
       setSetups(newSetups)
-      localStorage.setItem('simulation-setups', JSON.stringify(newSetups))
-      localStorage.setItem(simulationCode, JSON.stringify(setupData))
-    } else {
-      // Create new setup
-      const code = Math.random().toString(36).substring(2, 8).toUpperCase()
-      setSimulationCode(code)
-      const newSetup = { code, ...setupData }
-      const newSetups = [...setups, newSetup]
-      setSetups(newSetups)
-      localStorage.setItem('simulation-setups', JSON.stringify(newSetups))
-      localStorage.setItem(code, JSON.stringify(setupData))
-    }
-    setIsDirty(false)
-  }
-
-  const deleteSetup = (code: string) => {
-    const newSetups = setups.filter((setup) => setup.code !== code)
-    setSetups(newSetups)
-    localStorage.setItem('simulation-setups', JSON.stringify(newSetups))
-    localStorage.removeItem(code)
-    if (simulationCode === code) {
-      setSystemPrompt('')
-      setTitle('')
-      setSimulationCode(null)
+      setSimulationCode(codeToUse)
+      setIsDirty(false)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error saving setup')
     }
   }
 
-  if (!userId) {
+  const deleteSetup = async (code: string) => {
+    try {
+      const resp = await fetch(`/api/setups/${code}`, { method: 'DELETE' })
+      if (!resp.ok) throw new Error('Failed to delete setup')
+      const newSetups = setups.filter((setup) => setup.code !== code)
+      setSetups(newSetups)
+      if (simulationCode === code) {
+        setSystemPrompt('')
+        setTitle('')
+        setDescription('')
+        setSimulationCode(null)
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error deleting setup')
+    }
+  }
+
+  const initials = userName ? userName.charAt(0).toUpperCase() : userId ? userId.charAt(0).toUpperCase() : ''
+
+  const UserBadge = () => (
+    <div
+      className="relative inline-block text-left"
+      onMouseEnter={() => setIsUserMenuOpen(true)}
+      onMouseLeave={() => setIsUserMenuOpen(false)}
+    >
+      <div className="cursor-pointer">
+        <div className="h-9 w-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-semibold">{initials}</div>
+      </div>
+      <div className={`${isUserMenuOpen ? 'block' : 'hidden'} absolute right-0 mt-2 w-52 rounded-md bg-white border border-gray-200 shadow-lg p-3 text-sm z-10`}>
+        <div className="text-gray-600 font-medium break-all">{userName || loginId || userId}</div>
+        <div className="text-gray-500 text-xs">{userRole?.toUpperCase()}</div>
+        <button
+          className="mt-2 w-full px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
+          onClick={logout}
+        >
+          Log Out
+        </button>
+      </div>
+    </div>
+  )
+
+  if (!userId || userRole === 'Student') {
     return (
       <div className="h-screen bg-gray-50 flex items-center justify-center">
         <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8">
@@ -172,9 +230,9 @@ export default function Page() {
       <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Instructor Configuration</h1>
-          <button className="px-4 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-800" onClick={logout}>
-            Log Out
-          </button>
+          <div className="flex items-center gap-3">
+            <UserBadge />
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -192,6 +250,19 @@ export default function Page() {
                   }}
                   className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
                   placeholder="e.g., Customer Service Simulation"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <textarea
+                  value={description}
+                  onChange={(e) => {
+                    setDescription(e.target.value)
+                    setIsDirty(true)
+                  }}
+                  className="w-full h-24 p-4 border rounded-md resize-y focus:ring-2 focus:ring-blue-500 mb-4"
+                  placeholder="e.g., You will play the role of a nurse talking to a patient..."
                 />
               </div>
 
@@ -222,6 +293,7 @@ export default function Page() {
                 onClick={() => {
                   setSystemPrompt('')
                   setTitle('')
+                  setDescription('')
                   setSimulationCode(null)
                   setIsDirty(false)
                 }}
@@ -249,6 +321,7 @@ export default function Page() {
                           onClick={() => {
                             setSystemPrompt(setup.prompt)
                             setTitle(setup.title || '')
+                            setDescription(setup.description || '')
                             setSimulationCode(setup.code)
                             setIsDirty(false)
                           }}

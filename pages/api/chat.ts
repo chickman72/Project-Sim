@@ -64,6 +64,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // Route all requests through LLMLite proxy (no direct OpenAI calls from this app).
   try {
+    if (systemPrompt) {
+      console.log('[chat] systemPrompt:', systemPrompt)
+    } else {
+      console.log('[chat] systemPrompt: <empty>')
+    }
     const llmUrl = getLLMLiteEndpoint()
     const startMs = Date.now()
     const controller = new AbortController()

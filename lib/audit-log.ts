@@ -1,6 +1,5 @@
-import { mkdir, readFile, writeFile, rename, unlink } from 'node:fs/promises'
-import path from 'node:path'
 import crypto from 'node:crypto'
+import { getLogsContainer } from './cosmos'
 
 export type AuditEventType =
   | 'login'
@@ -32,12 +31,6 @@ export type AuditRecord = {
   errorJson?: string
 }
 
-const ensureLogsDir = async () => {
-  const dir = path.join(process.cwd(), 'logs')
-  await mkdir(dir, { recursive: true })
-  return dir
-}
-
 const safeStringify = (value: unknown) => {
   try {
     return JSON.stringify(value)
@@ -46,53 +39,21 @@ const safeStringify = (value: unknown) => {
   }
 }
 
-const readJsonArrayFile = async (filePath: string): Promise<unknown[]> => {
-  try {
-    const raw = await readFile(filePath, 'utf8')
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-const writeJsonArrayFile = async (filePath: string, records: unknown[]) => {
-  const tmp = `${filePath}.tmp`
-  await writeFile(tmp, JSON.stringify(records, null, 2) + '\n', 'utf8')
-  try {
-    await rename(tmp, filePath)
-  } catch {
-    try {
-      await unlink(filePath)
-    } catch {
-      // ignore
-    }
-    await rename(tmp, filePath)
-  }
-}
-
 export const createAuditId = () => crypto.randomBytes(16).toString('hex')
 
 export const writeAuditRecord = async (record: Omit<AuditRecord, 'id' | 'timestamp'> & { id?: string; timestamp?: string }) => {
-  const logsDir = await ensureLogsDir()
   const id = record.id || createAuditId()
   const timestamp = record.timestamp || new Date().toISOString()
   const full: AuditRecord = { id, timestamp, ...record }
+  // Cosmos DB requires partitionKey to be set. Use 'GLOBAL' if sessionId is null
+  const itemToInsert = { ...full, sessionId: full.sessionId || 'GLOBAL' }
 
-  const sessionPath = record.sessionId ? path.join(logsDir, `session-${record.sessionId}.json`) : null
-
-  if (sessionPath) {
-    const existing = await readJsonArrayFile(sessionPath)
-    existing.push(full)
-    await writeJsonArrayFile(sessionPath, existing)
-  } else {
-    // Fallback for events without a session
-    const adminPath = path.join(logsDir, 'interactions.json')
-    const existing = await readJsonArrayFile(adminPath)
-    existing.push(full)
-    await writeJsonArrayFile(adminPath, existing)
+  try {
+    const container = await getLogsContainer()
+    await container.items.create(itemToInsert)
+  } catch (error) {
+    console.error('Failed writing audit log to Cosmos DB', error)
   }
-
 
   return { id }
 }

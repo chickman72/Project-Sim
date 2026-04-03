@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { authenticateUser, getUserById } from './user'
 
 const COOKIE_NAME = 'psim_session'
 
@@ -29,13 +30,14 @@ export const getSessionCookieName = () => COOKIE_NAME
 export type SessionPayload = {
   sessionId: string
   userId: string
+  role: string
   iat: number
   exp: number
 }
 
-export const createSessionToken = (userId: string, ttlSeconds = 60 * 60 * 12) => {
+export const createSessionToken = (userId: string, role: string, ttlSeconds = 60 * 60 * 12) => {
   const now = Math.floor(Date.now() / 1000)
-  const payload: SessionPayload = { sessionId: crypto.randomUUID(), userId, iat: now, exp: now + ttlSeconds }
+  const payload: SessionPayload = { sessionId: crypto.randomUUID(), userId, role, iat: now, exp: now + ttlSeconds }
   const payloadB64 = base64UrlEncode(JSON.stringify(payload))
 
   const sig = crypto
@@ -68,6 +70,7 @@ export const verifySessionToken = (token: string | undefined | null): SessionPay
     const payload = JSON.parse(payloadStr) as SessionPayload
     if (!payload?.userId || typeof payload.userId !== 'string') return null
     if (!payload?.sessionId || typeof payload.sessionId !== 'string') return null
+    if (!payload?.role || typeof payload.role !== 'string') return null
 
     const now = Math.floor(Date.now() / 1000)
     if (typeof payload.exp !== 'number' || payload.exp < now) return null
@@ -77,17 +80,9 @@ export const verifySessionToken = (token: string | undefined | null): SessionPay
   }
 }
 
-export const authenticateLogin = (userId: string, password: string) => {
-  const expected = process.env.AUTH_PASSWORD
-  if (!expected) throw new Error('AUTH_PASSWORD is not set')
-
-  const normalize = (v: string) => v.normalize('NFKC')
-  const ok = normalize(password) === normalize(expected)
-  if (!ok) return false
-
-  const cleaned = userId.trim()
-  if (!cleaned) return false
-  if (cleaned.length > 128) return false
-  return true
+export const authenticateLogin = async (username: string, password: string) => {
+  const user = await authenticateUser(username, password)
+  if (!user) return null
+  return user
 }
 

@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import { getSessionCookieName, verifySessionToken } from '../../../lib/auth'
+import { getSessionCookieName, verifySessionToken } from 'lib/auth'
+import { getUserById } from 'lib/user'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') return res.status(405).end()
@@ -8,6 +9,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const session = verifySessionToken(token)
   if (!session) return res.status(401).json({ error: 'Not authenticated' })
 
-  return res.status(200).json({ userId: session.userId })
+  const user = await getUserById(session.userId)
+  if (!user) return res.status(401).json({ error: 'Not authenticated' })
+
+  return res.status(200).json({ userId: session.userId, username: user.username, role: session.role })
 }
 
