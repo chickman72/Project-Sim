@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { authenticateLogin, createSessionToken, getSessionCookieName, verifySessionToken } from 'lib/auth'
 import { toAuditJson, writeAuditRecord } from 'lib/audit-log'
 import { listUsers, createUser, updateUser } from 'lib/user'
+import { getCohortsByStudent } from 'lib/cohort'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end()
@@ -44,11 +45,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // If logging in with AUTH_PASSWORD, promote to Administrator
+    // Only allow AUTH_PASSWORD elevation for the dedicated bootstrap admin account.
     const expected = process.env.AUTH_PASSWORD
-    if (expected && password === expected && user.role !== 'Administrator') {
+    if (
+      expected &&
+      password === expected &&
+      user.role !== 'Administrator' &&
+      user.username === 'admin'
+    ) {
       await updateUser(user.id, { role: 'Administrator' })
       user.role = 'Administrator'
+    }
+
+    // Auto-correct accounts that were accidentally promoted but are clearly student accounts.
+    if (user.role === 'Administrator' && user.username !== 'admin') {
+      const enrolledCohorts = await getCohortsByStudent(user.id)
+      if (enrolledCohorts.length > 0) {
+        await updateUser(user.id, { role: 'Student' })
+        user.role = 'Student'
+      }
     }
 
     const token = createSessionToken(user.id, user.role)
@@ -72,7 +87,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.error('Failed writing audit log', logErr)
     }
 
-    return res.status(200).json({ userId: user.id, username: user.username, role: user.role })
+    return res.status(200).json({ userId: user.id, username: user.username, role: user.role, requiresPasswordChange: user.requiresPasswordChange ?? false })
   } catch (err: any) {
     try {
       await writeAuditRecord({

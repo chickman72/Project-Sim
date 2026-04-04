@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSetupsContainer } from '../../../lib/cosmos'
 import { getSessionCookieName, verifySessionToken } from '../../../lib/auth'
 import { logAdminAction } from '../../../lib/audit-log'
+import { getCohortsByStudent } from '../../../lib/cohort'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { code } = req.query
@@ -13,12 +14,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const container = await getSetupsContainer()
 
     if (req.method === 'GET') {
-      // Anyone can fetch a setup by code (students need this)
+      // Check authentication for access control
+      const token = req.cookies?.[getSessionCookieName()]
+      const session = verifySessionToken(token)
+
       try {
         const { resource } = await container.item(code, code).read()
         if (!resource) {
           return res.status(404).json({ error: 'Setup not found' })
         }
+
+        const visibility = resource.visibility || (resource.assignedCohortId ? 'cohort' : 'global')
+
+        // Non-global simulations require authentication.
+        if (visibility !== 'global' && !session) {
+          return res.status(401).json({ error: 'Not authenticated' })
+        }
+
+        // If student, check if they have access to this simulation
+        if (session && session.role === 'Student') {
+          if (visibility === 'private') {
+            return res.status(403).json({ error: 'Access denied. This simulation is private and not assigned to you.' })
+          }
+
+          // If simulation is assigned to a cohort, check student's cohorts
+          if (visibility === 'cohort' && resource.assignedCohortId) {
+            const studentCohorts = await getCohortsByStudent(session.userId)
+            const hasAccess = studentCohorts.some(c => c.id === resource.assignedCohortId)
+            if (!hasAccess) {
+              return res.status(403).json({ error: 'Access denied. This simulation is not available to you.' })
+            }
+          }
+          // Global simulations (no assignedCohortId) are always accessible
+        }
+
         // Return only what the student needs
         return res.status(200).json({
           code: resource.code,

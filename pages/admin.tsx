@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/router'
 import AnalyticsDashboard from '../components/AnalyticsDashboard'
 
 interface User {
@@ -20,9 +21,11 @@ interface Simulation {
   userId: string
   username: string
   updatedAt: string
+  assignedCohortId?: string
 }
 
 export default function AdminPage() {
+  const router = useRouter()
   const [users, setUsers] = useState<User[]>([])
   const [simulations, setSimulations] = useState<Simulation[]>([])
   const [loading, setLoading] = useState(true)
@@ -40,6 +43,10 @@ export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'simulations'>('users')
   const [selectedSimulation, setSelectedSimulation] = useState<Simulation | null>(null)
   const [showPromptModal, setShowPromptModal] = useState(false)
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false)
+  const [bulkImportRole, setBulkImportRole] = useState<'Student' | 'Instructor' | 'Administrator'>('Student')
+  const [importLoading, setImportLoading] = useState(false)
+  const [importResults, setImportResults] = useState<any | null>(null)
 
   useEffect(() => {
     checkAuth()
@@ -120,6 +127,14 @@ export default function AdminPage() {
       if (data.role !== 'Administrator') {
         throw new Error('Access denied. Administrator role required.')
       }
+      
+      // Check if user needs to reset password
+      if (data.requiresPasswordChange) {
+        // Redirect to password reset page instead of logging in
+        router.push('/reset-password')
+        return
+      }
+
       setUserId(String(data.userId || loginId))
       setUserName(data.username || loginId)
       setUserRole(data.role)
@@ -230,6 +245,34 @@ export default function AdminPage() {
     setShowAddForm(false)
     setEditingUser(null)
     setFormData({ username: '', password: '', role: 'Administrator' })
+  }
+
+  const handleBulkImport = async (file: File) => {
+    setImportLoading(true)
+    setImportResults(null)
+    setError(null)
+
+    try {
+      const csvContent = await file.text()
+      const res = await fetch('/api/users/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csvContent, role: bulkImportRole })
+      })
+
+      if (res.ok) {
+        const results = await res.json()
+        setImportResults(results)
+        await fetchUsers()
+      } else {
+        const errorData = await res.json().catch(() => ({}))
+        setError(errorData.error || 'Failed to import users')
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to import users')
+    } finally {
+      setImportLoading(false)
+    }
   }
 
   if (!userId) {
@@ -353,12 +396,20 @@ export default function AdminPage() {
             <div className="bg-white rounded-lg shadow-md p-6">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold">Users</h2>
-                <button
-                  onClick={() => setShowAddForm(true)}
-                  className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  Add User
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowAddForm(true)}
+                    className="px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors"
+                  >
+                    Add User
+                  </button>
+                  <button
+                    onClick={() => setShowBulkImportModal(true)}
+                    className="px-4 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition-colors"
+                  >
+                    Bulk Import CSV
+                  </button>
+                </div>
               </div>
 
               {loading ? (
@@ -520,6 +571,127 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* Bulk Import Modal */}
+      {showBulkImportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="relative w-full max-w-2xl rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <h3 className="text-lg font-semibold text-gray-900">Bulk Import Users from CSV</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowBulkImportModal(false)
+                  setImportResults(null)
+                }}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="max-h-[80vh] overflow-y-auto px-6 py-4">
+              {!importResults ? (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-sm text-gray-600 mb-3">
+                      Upload a CSV file with columns: <code className="bg-gray-100 px-2 py-1 rounded">name</code> and <code className="bg-gray-100 px-2 py-1 rounded">email</code>
+                    </p>
+                    <div className="p-3 bg-blue-50 border border-blue-200 rounded text-sm text-blue-800">
+                      Example CSV format:
+                      <pre className="text-xs mt-2">name,email{'\n'}John Smith,john@example.com{'\n'}Jane Doe,jane@example.com</pre>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">User Role</label>
+                    <select
+                      value={bulkImportRole}
+                      onChange={(e) => setBulkImportRole(e.target.value as 'Student' | 'Instructor' | 'Administrator')}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="Student">Student</option>
+                      <option value="Instructor">Instructor</option>
+                      <option value="Administrator">Administrator</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">CSV File</label>
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={(e) => {
+                        const file = e.currentTarget.files?.[0]
+                        if (file) {
+                          handleBulkImport(file)
+                        }
+                      }}
+                      disabled={importLoading}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                    />
+                  </div>
+
+                  {importLoading && (
+                    <div className="flex items-center justify-center py-4">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                      <span className="ml-2 text-gray-600">Importing users...</span>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className={`p-4 rounded-lg ${importResults.failed === 0 ? 'bg-green-50 border border-green-200' : 'bg-yellow-50 border border-yellow-200'}`}>
+                    <p className={`font-semibold ${importResults.failed === 0 ? 'text-green-800' : 'text-yellow-800'}`}>
+                      Import Complete
+                    </p>
+                    <p className={importResults.failed === 0 ? 'text-green-700' : 'text-yellow-700'}>
+                      Successfully imported {importResults.success} user{importResults.success !== 1 ? 's' : ''}.
+                      {importResults.failed > 0 && ` ${importResults.failed} user${importResults.failed !== 1 ? 's' : ''} failed.`}
+                    </p>
+                  </div>
+
+                  {importResults.failures && importResults.failures.length > 0 && (
+                    <div>
+                      <h4 className="font-semibold text-gray-900 mb-2">Failures:</h4>
+                      <div className="max-h-48 overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="bg-gray-100">
+                              <th className="p-2 text-left">Email</th>
+                              <th className="p-2 text-left">Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {importResults.failures.map((failure: any, idx: number) => (
+                              <tr key={idx} className="border-t">
+                                <td className="p-2">{failure.email}</td>
+                                <td className="p-2 text-red-600">{failure.reason}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-2 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowBulkImportModal(false)
+                        setImportResults(null)
+                      }}
+                      className="flex-1 px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 transition-colors"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Prompt Modal */}
       {showPromptModal && selectedSimulation && (

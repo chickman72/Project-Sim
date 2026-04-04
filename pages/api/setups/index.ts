@@ -2,6 +2,9 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSetupsContainer } from '../../../lib/cosmos'
 import { getSessionCookieName, verifySessionToken } from '../../../lib/auth'
 import { logAdminAction } from '../../../lib/audit-log'
+import { getCohortById } from '../../../lib/cohort'
+
+type SimulationVisibility = 'global' | 'cohort' | 'private'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = req.cookies?.[getSessionCookieName()]
@@ -26,9 +29,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'POST') {
       // Create or update a setup
-      const { code, title, description, prompt } = req.body
+      const { code, title, description, prompt, assignedCohortId, visibility } = req.body
       if (!code || !prompt) {
         return res.status(400).json({ error: 'code and prompt are required' })
+      }
+
+      const validVisibility = new Set<SimulationVisibility>(['global', 'cohort', 'private'])
+      let normalizedVisibility: SimulationVisibility =
+        typeof visibility === 'string' && validVisibility.has(visibility as SimulationVisibility)
+          ? (visibility as SimulationVisibility)
+          : assignedCohortId
+            ? 'cohort'
+            : 'global'
+
+      if (typeof visibility === 'string' && !validVisibility.has(visibility as SimulationVisibility)) {
+        return res.status(400).json({ error: 'visibility must be one of: global, cohort, private' })
+      }
+
+      let normalizedAssignedCohortId: string | undefined
+      if (normalizedVisibility === 'cohort') {
+        if (typeof assignedCohortId !== 'string' || assignedCohortId.trim().length === 0) {
+          return res.status(400).json({ error: 'assignedCohortId is required when visibility is cohort' })
+        }
+
+        const cohortId = assignedCohortId.trim()
+        const cohort = await getCohortById(cohortId)
+        if (!cohort) {
+          return res.status(400).json({ error: 'Assigned cohort was not found' })
+        }
+
+        if (session.role !== 'Administrator' && cohort.instructorId !== session.userId) {
+          return res.status(403).json({ error: 'You can only assign simulations to your own cohorts' })
+        }
+
+        normalizedAssignedCohortId = cohortId
+      } else {
+        normalizedAssignedCohortId = undefined
       }
 
       const container = await getSetupsContainer()
@@ -48,6 +84,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         title,
         description,
         prompt,
+        visibility: normalizedVisibility,
+        assignedCohortId: normalizedAssignedCohortId,
         userId: session.userId,
         updatedAt: new Date().toISOString()
       }

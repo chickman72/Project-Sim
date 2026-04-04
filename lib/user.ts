@@ -6,8 +6,12 @@ export type UserRole = 'Administrator' | 'Instructor' | 'Student'
 export interface User {
   id: string
   username: string
+  email?: string
   passwordHash: string
   role: UserRole
+  requiresPasswordChange?: boolean
+  resetToken?: string
+  resetTokenExpiry?: string
   createdAt: string
   updatedAt: string
 }
@@ -16,19 +20,58 @@ const hashPassword = (password: string): string => {
   return crypto.createHash('sha256').update(password).digest('hex')
 }
 
-export const createUser = async (username: string, password: string, role: UserRole): Promise<User> => {
+export const generateTemporaryPassword = (): string => {
+  return crypto.randomBytes(4).toString('hex')
+}
+
+export const generateResetToken = (): string => {
+  return crypto.randomBytes(32).toString('hex')
+}
+
+export const getUserByResetToken = async (token: string): Promise<User | null> => {
+  const container = await getUsersContainer()
+  const querySpec = {
+    query: 'SELECT * FROM c WHERE c.resetToken = @token AND c.resetTokenExpiry > @now',
+    parameters: [
+      { name: '@token', value: token },
+      { name: '@now', value: new Date().toISOString() }
+    ]
+  }
+  const { resources } = await container.items.query(querySpec).fetchAll()
+  return resources[0] as User || null
+}
+
+export const createUser = async (
+  username: string,
+  password: string,
+  role: UserRole,
+  requiresPasswordChange?: boolean,
+  email?: string
+): Promise<User> => {
   const container = await getUsersContainer()
   const id = crypto.randomUUID()
   const user: User = {
     id,
     username: username.trim(),
+    email: email?.trim(),
     passwordHash: hashPassword(password),
     role,
+    requiresPasswordChange: requiresPasswordChange === true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   }
   await container.items.create(user)
   return user
+}
+
+export const getUserByEmail = async (email: string): Promise<User | null> => {
+  const container = await getUsersContainer()
+  const querySpec = {
+    query: 'SELECT * FROM c WHERE c.email = @email',
+    parameters: [{ name: '@email', value: email }]
+  }
+  const { resources } = await container.items.query(querySpec).fetchAll()
+  return resources[0] as User || null
 }
 
 export const getUserById = async (id: string): Promise<User | null> => {
@@ -51,7 +94,7 @@ export const getUserByUsername = async (username: string): Promise<User | null> 
   return resources[0] as User || null
 }
 
-export const updateUser = async (id: string, updates: Partial<Pick<User, 'username' | 'passwordHash' | 'role'>>): Promise<User | null> => {
+export const updateUser = async (id: string, updates: Partial<Pick<User, 'username' | 'passwordHash' | 'role' | 'requiresPasswordChange' | 'resetToken' | 'resetTokenExpiry'>>): Promise<User | null> => {
   const container = await getUsersContainer()
   try {
     const { resource: existing } = await container.item(id).read()
@@ -85,8 +128,88 @@ export const listUsers = async (): Promise<User[]> => {
 }
 
 export const authenticateUser = async (username: string, password: string): Promise<User | null> => {
-  const user = await getUserByUsername(username)
+  const loginValue = username.trim()
+  let user = await getUserByUsername(loginValue)
+  if (!user && loginValue.includes('@')) {
+    user = await getUserByEmail(loginValue)
+  }
   if (!user) return null
   if (hashPassword(password) !== user.passwordHash) return null
   return user
+}
+
+export interface BulkImportResult {
+  success: number
+  failed: number
+  failures: Array<{ name?: string; email: string; reason: string }>
+}
+
+export const bulkImportUsers = async (csvContent: string, role: UserRole = 'Student'): Promise<BulkImportResult> => {
+  const lines = csvContent.trim().split('\n')
+  if (lines.length < 2) {
+    throw new Error('CSV must have a header row and at least one data row')
+  }
+
+  const header = lines[0].toLowerCase().split(',').map(h => h.trim())
+  const nameIndex = header.indexOf('name')
+  const emailIndex = header.indexOf('email')
+
+  if (nameIndex === -1 || emailIndex === -1) {
+    throw new Error('CSV must have "name" and "email" columns')
+  }
+
+  const result: BulkImportResult = {
+    success: 0,
+    failed: 0,
+    failures: []
+  }
+
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line) continue
+
+    const fields = line.split(',').map(f => f.trim())
+    const name = fields[nameIndex]
+    const email = fields[emailIndex]
+
+    if (!name || !email) {
+      result.failed++
+      result.failures.push({
+        name,
+        email: email || `row-${i}`,
+        reason: 'Name and email are required'
+      })
+      continue
+    }
+
+    try {
+      // Check if user already exists by email
+      const existing = await getUserByEmail(email)
+      if (existing) {
+        result.failed++
+        result.failures.push({
+          name,
+          email,
+          reason: 'User with this email already exists'
+        })
+        continue
+      }
+
+      // Generate temporary password
+      const tempPassword = generateTemporaryPassword()
+      
+      // Create user with email as username
+      await createUser(email, tempPassword, role, true)
+      result.success++
+    } catch (err) {
+      result.failed++
+      result.failures.push({
+        name,
+        email,
+        reason: err instanceof Error ? err.message : 'Unknown error'
+      })
+    }
+  }
+
+  return result
 }

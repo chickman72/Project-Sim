@@ -5,15 +5,28 @@ import { listUsers, createUser, getUserByUsername, UserRole } from 'lib/user'
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = req.cookies?.[getSessionCookieName()]
   const session = verifySessionToken(token)
-  if (!session || session.role !== 'Administrator') {
+  if (!session || (session.role !== 'Administrator' && session.role !== 'Instructor')) {
     return res.status(403).json({ error: 'Forbidden' })
   }
 
   if (req.method === 'GET') {
     try {
       const users = await listUsers()
+      // Filter by role if specified
+      const role = req.query.role as string | undefined
+      const filtered = role 
+        ? users.filter(u => u.role === role)
+        : users
+      
       // Don't return password hashes
-      const safeUsers = users.map(u => ({ id: u.id, username: u.username, role: u.role, createdAt: u.createdAt, updatedAt: u.updatedAt }))
+      const safeUsers = filtered.map(u => ({ 
+        id: u.id, 
+        username: u.username, 
+        email: u.email,
+        role: u.role, 
+        createdAt: u.createdAt, 
+        updatedAt: u.updatedAt 
+      }))
       return res.status(200).json(safeUsers)
     } catch (error) {
       console.error('Error listing users:', error)
@@ -22,6 +35,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === 'POST') {
+    // Only administrators can create users
+    if (session.role !== 'Administrator') {
+      return res.status(403).json({ error: 'Forbidden. Only administrators can create users.' })
+    }
+
     const { username, password, role } = req.body || {}
     if (typeof username !== 'string' || typeof password !== 'string' || !['Administrator', 'Instructor', 'Student'].includes(role)) {
       return res.status(400).json({ error: 'Invalid input' })

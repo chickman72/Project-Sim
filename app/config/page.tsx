@@ -2,6 +2,10 @@
 
 import React, { useState, useEffect } from 'react'
 import create from 'zustand'
+import CohortManager from '../../components/CohortManager'
+import NeedsReviewDashboard from '../../components/NeedsReviewDashboard'
+
+type SimulationVisibility = 'global' | 'cohort' | 'private'
 
 type Store = {
   systemPrompt: string
@@ -29,20 +33,39 @@ export default function Page() {
   const [isDirty, setIsDirty] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [setups, setSetups] = useState<{ code: string; prompt: string; title: string; description: string }[]>([])
+  const [setups, setSetups] = useState<{ code: string; prompt: string; title: string; description: string; assignedCohortId?: string; visibility?: SimulationVisibility }[]>([])
+  const [cohorts, setCohorts] = useState<{ id: string; name: string }[]>([])
+  const [selectedVisibility, setSelectedVisibility] = useState<SimulationVisibility>('global')
+  const [selectedCohortId, setSelectedCohortId] = useState<string | undefined>(undefined)
+  const [activeTab, setActiveTab] = useState<'simulations' | 'classes' | 'needsReview'>('simulations')
 
   useEffect(() => {
     if (!userId) {
       setSetups([])
+      setCohorts([])
       return
     }
     ;(async () => {
       try {
-        const resp = await fetch('/api/setups')
-        if (resp.ok) {
-          const data = await resp.json()
-          const setupsWithTitles = data.map((s: any) => ({ ...s, title: s.title || '', description: s.description || '' }))
+        // Load setups
+        const setupResp = await fetch('/api/setups')
+        if (setupResp.ok) {
+          const data = await setupResp.json()
+          const setupsWithTitles = data.map((s: any) => ({ 
+            ...s, 
+            title: s.title || '', 
+            description: s.description || '',
+            assignedCohortId: s.assignedCohortId,
+            visibility: s.visibility || (s.assignedCohortId ? 'cohort' : 'global')
+          }))
           setSetups(setupsWithTitles)
+        }
+
+        // Load cohorts
+        const cohortResp = await fetch('/api/cohorts')
+        if (cohortResp.ok) {
+          const cohortData = await cohortResp.json()
+          setCohorts(cohortData)
         }
       } catch {
         // ignore
@@ -92,6 +115,14 @@ export default function Page() {
         const detail = data?.error ?? data?.raw ?? `Status ${resp.status}`
         throw new Error(String(detail))
       }
+      
+      // Check if user needs to reset password
+      if (data.requiresPasswordChange) {
+        // Redirect to password reset page
+        window.location.href = '/reset-password'
+        return
+      }
+
       setUserId(String(data.userId || loginId))
       setUserName(data.username || loginId)
       setUserRole(data.role || null)
@@ -118,7 +149,12 @@ export default function Page() {
 
   const saveSetup = async () => {
     const codeToUse = simulationCode || Math.random().toString(36).substring(2, 8).toUpperCase()
-    const setupData = { code: codeToUse, title, description, prompt: systemPrompt }
+    const setupData: any = { code: codeToUse, title, description, prompt: systemPrompt, visibility: selectedVisibility }
+    
+    // Add assignedCohortId only for cohort visibility.
+    if (selectedVisibility === 'cohort' && selectedCohortId) {
+      setupData.assignedCohortId = selectedCohortId
+    }
     
     try {
       const resp = await fetch('/api/setups', {
@@ -237,8 +273,43 @@ export default function Page() {
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
+            {/* Tabs */}
+            <div className="flex gap-0 mb-6 border-b border-gray-200 bg-white rounded-t-lg">
+              <button
+                onClick={() => setActiveTab('simulations')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'simulations'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Simulation Setup
+              </button>
+              <button
+                onClick={() => setActiveTab('classes')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'classes'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Class Management
+              </button>
+              <button
+                onClick={() => setActiveTab('needsReview')}
+                className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                  activeTab === 'needsReview'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Needs Review
+              </button>
+            </div>
+
+            {/* Simulation Setup Tab */}
+            {activeTab === 'simulations' && (
             <div className="bg-white rounded-lg shadow-md p-6">
-              <h2 className="text-xl font-semibold mb-4">Simulation Setup</h2>
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
@@ -264,6 +335,39 @@ export default function Page() {
                   className="w-full h-24 p-4 border rounded-md resize-y focus:ring-2 focus:ring-blue-500 mb-4"
                   placeholder="e.g., You will play the role of a nurse talking to a patient..."
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Availability</label>
+                <select
+                  value={selectedVisibility === 'cohort' ? `cohort:${selectedCohortId || ''}` : selectedVisibility}
+                  onChange={(e) => {
+                    const value = e.target.value
+                    if (value === 'global' || value === 'private') {
+                      setSelectedVisibility(value)
+                      setSelectedCohortId(undefined)
+                    } else if (value.startsWith('cohort:')) {
+                      const cohortId = value.substring('cohort:'.length)
+                      setSelectedVisibility('cohort')
+                      setSelectedCohortId(cohortId || undefined)
+                    }
+                    setIsDirty(true)
+                  }}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+                >
+                  <option value="global">-- Global (Available to All Students) --</option>
+                  <option value="private">-- Private (Hidden Until Explicitly Assigned) --</option>
+                  {cohorts.map(cohort => (
+                    <option key={cohort.id} value={`cohort:${cohort.id}`}>
+                      {cohort.name}
+                    </option>
+                  ))}
+                </select>
+                {cohorts.length === 0 && (
+                  <p className="text-sm text-gray-500 mb-4">
+                    No classes available. Create a class in the Class Management section to assign simulations.
+                  </p>
+                )}
               </div>
 
               <label className="block text-sm font-medium text-gray-700 mb-1">Scenario Prompt</label>
@@ -294,6 +398,8 @@ export default function Page() {
                   setSystemPrompt('')
                   setTitle('')
                   setDescription('')
+                  setSelectedVisibility('global')
+                  setSelectedCohortId(undefined)
                   setSimulationCode(null)
                   setIsDirty(false)
                 }}
@@ -301,9 +407,24 @@ export default function Page() {
                 Create New
               </button>
             </div>
+            )}
+
+            {/* Class Management Tab */}
+            {activeTab === 'classes' && (
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <CohortManager instructorId={userId || ''} />
+            </div>
+            )}
+
+            {activeTab === 'needsReview' && (
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <NeedsReviewDashboard />
+            </div>
+            )}
           </div>
 
           <div className="lg:col-span-1">
+            {activeTab === 'simulations' && (
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-xl font-semibold mb-4">Previous Setups</h2>
               {setups.length > 0 ? (
@@ -316,6 +437,17 @@ export default function Page() {
                         {setup.description && (
                           <p className="text-sm text-gray-600 mt-1">{setup.description}</p>
                         )}
+                        {(setup.visibility || (setup.assignedCohortId ? 'cohort' : 'global')) === 'private' && (
+                          <p className="text-xs text-gray-600 mt-1">Private</p>
+                        )}
+                        {(setup.visibility || (setup.assignedCohortId ? 'cohort' : 'global')) === 'global' && (
+                          <p className="text-xs text-green-700 mt-1">Global</p>
+                        )}
+                        {(setup.visibility || (setup.assignedCohortId ? 'cohort' : 'global')) === 'cohort' && setup.assignedCohortId && (
+                          <p className="text-xs text-blue-600 mt-1">
+                            📌 Assigned: {cohorts.find(c => c.id === setup.assignedCohortId)?.name || 'Unknown Class'}
+                          </p>
+                        )}
                       </div>
                       <div className="flex-shrink-0 flex items-center space-x-2">
                         <button
@@ -324,6 +456,9 @@ export default function Page() {
                             setSystemPrompt(setup.prompt)
                             setTitle(setup.title || '')
                             setDescription(setup.description || '')
+                            const visibility = setup.visibility || (setup.assignedCohortId ? 'cohort' : 'global')
+                            setSelectedVisibility(visibility)
+                            setSelectedCohortId(visibility === 'cohort' ? setup.assignedCohortId : undefined)
                             setSimulationCode(setup.code)
                             setIsDirty(false)
                           }}
@@ -346,6 +481,7 @@ export default function Page() {
                 <p className="text-gray-500">No previous setups found.</p>
               )}
             </div>
+            )}
           </div>
         </div>
       </div>
