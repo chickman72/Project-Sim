@@ -7,6 +7,33 @@ export type AuditEventType =
   | 'chat'
   | 'chat_error'
   | 'auth_required'
+  | 'session_state'
+
+export type CompletionStatus = 'in-progress' | 'completed' | 'abandoned' | 'timeout'
+
+export type SimMessage = {
+  id: string
+  timestamp: string
+  userId: string
+  sessionId: string
+  studentInput: string
+  aiOutput: string
+  scenarioId?: string
+  promptVersion?: string
+  latencyMs?: number
+}
+
+export type SimSession = {
+  id: string
+  timestamp: string
+  userId: string
+  sessionId: string
+  scenarioId?: string
+  promptVersion?: string
+  completionStatus?: CompletionStatus
+  sessionDurationSeconds?: number
+  sessionTags?: string[]
+}
 
 export type AuditRecord = {
   id: string
@@ -25,6 +52,14 @@ export type AuditRecord = {
   model?: string
   userMessage?: string
   assistant?: string
+  studentInput?: string
+  aiOutput?: string
+  scenarioId?: string
+  promptVersion?: string
+  latencyMs?: number
+  completionStatus?: CompletionStatus
+  sessionDurationSeconds?: number
+  sessionTags?: string[]
   messagesJson?: string
   requestJson?: string
   responseJson?: string
@@ -46,7 +81,11 @@ export const writeAuditRecord = async (record: Omit<AuditRecord, 'id' | 'timesta
   const timestamp = record.timestamp || new Date().toISOString()
   const full: AuditRecord = { id, timestamp, ...record }
   // Cosmos DB requires partitionKey to be set. Use 'GLOBAL' if sessionId is null
-  const itemToInsert = { ...full, sessionId: full.sessionId || 'GLOBAL' }
+  const itemToInsert = {
+    ...full,
+    sessionId: full.sessionId || 'GLOBAL',
+    sessionTags: full.sessionTags ?? [],
+  }
 
   try {
     const container = await getLogsContainer()

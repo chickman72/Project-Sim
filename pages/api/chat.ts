@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSessionCookieName, verifySessionToken } from '../../lib/auth'
-import { toAuditJson, writeAuditRecord } from '../../lib/audit-log'
+import { toAuditJson, writeAuditRecord, type CompletionStatus } from '../../lib/audit-log'
 
 const DEFAULT_LLMLITE_URL =
   'https://proxy-ai-anes-uabmc-awefchfueccrddhf.eastus2-01.azurewebsites.net/'
@@ -46,7 +46,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(401).json({ error: 'Not authenticated' })
   }
 
-  const { systemPrompt, history, userMessage, model } = req.body || {}
+  const {
+    systemPrompt,
+    history,
+    userMessage,
+    model,
+    scenarioId,
+    promptVersion,
+    completionStatus,
+    sessionDurationSeconds,
+    sessionTags,
+  } = req.body || {}
+
+  const isCompletionStatus = (value: unknown): value is CompletionStatus =>
+    typeof value === 'string' &&
+    ['in-progress', 'completed', 'abandoned', 'timeout'].includes(value)
+
   if (!userMessage) return res.status(400).json({ error: 'userMessage required' })
 
   const messages: Msg[] = []
@@ -138,6 +153,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       assistant = data.assistant
     }
 
+    const latencyMs = Date.now() - startMs
+
     try {
       await writeAuditRecord({
         eventType: 'chat',
@@ -150,9 +167,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         method: req.method || null,
         endpoint: llmUrl,
         model: chosenModel,
-        durationMs: Date.now() - startMs,
-        userMessage,
-        assistant,
+        durationMs: latencyMs,
+        latencyMs,
+        studentInput: userMessage,
+        aiOutput: assistant,
+        scenarioId: typeof scenarioId === 'string' ? scenarioId : undefined,
+        promptVersion: typeof promptVersion === 'string' ? promptVersion : undefined,
+        completionStatus: isCompletionStatus(completionStatus) ? completionStatus : undefined,
+        sessionDurationSeconds: typeof sessionDurationSeconds === 'number' ? sessionDurationSeconds : undefined,
+        sessionTags: Array.isArray(sessionTags) ? sessionTags : undefined,
         messagesJson: toAuditJson(messages),
         requestJson: toAuditJson({
           systemPrompt: systemPrompt ?? null,
@@ -164,6 +187,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
     } catch (logErr) {
       console.error('Failed writing audit log', logErr)
+    }
+
+    try {
+      await writeAuditRecord({
+        eventType: 'session_state',
+        ok: true,
+        userId: session.userId,
+        sessionId: session.sessionId,
+        clientIp: String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || ''),
+        userAgent: String(req.headers['user-agent'] || ''),
+        path: req.url || null,
+        method: req.method || null,
+        durationMs: latencyMs,
+        scenarioId: typeof scenarioId === 'string' ? scenarioId : undefined,
+        promptVersion: typeof promptVersion === 'string' ? promptVersion : undefined,
+        completionStatus: isCompletionStatus(completionStatus) ? completionStatus : undefined,
+        sessionDurationSeconds: typeof sessionDurationSeconds === 'number' ? sessionDurationSeconds : undefined,
+        sessionTags: Array.isArray(sessionTags) ? sessionTags : undefined,
+      })
+    } catch (logErr) {
+      console.error('Failed writing session analytics log', logErr)
     }
 
     return res.status(200).json({ assistant })

@@ -140,7 +140,13 @@ export default function Page() {
       const resp = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ systemPrompt, history: historyToSend, userMessage: userMsg.content }),
+        body: JSON.stringify({
+          systemPrompt,
+          history: historyToSend,
+          userMessage: userMsg.content,
+          scenarioId: simulationCode || undefined,
+          sessionTags: userRole ? [userRole] : undefined,
+        }),
       })
       const text = await resp.text()
       let data: any = null
