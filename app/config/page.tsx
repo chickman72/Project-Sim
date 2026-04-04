@@ -313,7 +313,9 @@ export default function Page() {
                       <div className="flex-grow min-w-0 mr-4">
                         <p className="font-semibold text-gray-800">{setup.title || 'Untitled'}</p>
                         <p className="font-mono text-sm text-gray-500">{setup.code}</p>
-                        <p className="text-sm text-gray-600 whitespace-pre-wrap break-words mt-2">{setup.prompt}</p>
+                        {setup.description && (
+                          <p className="text-sm text-gray-600 mt-1">{setup.description}</p>
+                        )}
                       </div>
                       <div className="flex-shrink-0 flex items-center space-x-2">
                         <button

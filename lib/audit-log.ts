@@ -66,6 +66,18 @@ export type AuditRecord = {
   errorJson?: string
 }
 
+export type AdminAuditAction = 'CREATE_SIM' | 'UPDATE_SIM' | 'DELETE_SIM'
+
+export type AdminAuditLog = {
+  logId: string
+  adminId: string
+  action: AdminAuditAction
+  resourceId: string
+  timestamp: string
+  details?: Record<string, unknown>
+  type: 'AdminAuditLog'
+}
+
 const safeStringify = (value: unknown) => {
   try {
     return JSON.stringify(value)
@@ -95,6 +107,36 @@ export const writeAuditRecord = async (record: Omit<AuditRecord, 'id' | 'timesta
   }
 
   return { id }
+}
+
+export const logAdminAction = async (
+  adminId: string,
+  action: AdminAuditAction,
+  resourceId: string,
+  details?: Record<string, unknown>
+) => {
+  const logEntry: AdminAuditLog = {
+    logId: crypto.randomUUID(),
+    adminId,
+    action,
+    resourceId,
+    timestamp: new Date().toISOString(),
+    details,
+    type: 'AdminAuditLog'
+  }
+
+  try {
+    const container = await getLogsContainer()
+    await container.items.create({
+      ...logEntry,
+      sessionId: 'GLOBAL', // Use GLOBAL partition key for admin logs
+      id: logEntry.logId // Cosmos DB requires 'id' field
+    })
+  } catch (error) {
+    console.error('Failed writing admin audit log to Cosmos DB', error)
+  }
+
+  return { logId: logEntry.logId }
 }
 
 export const toAuditJson = (value: unknown) => safeStringify(value)

@@ -125,6 +125,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const sessionState = sortedRecords.find((r) => r.eventType === 'session_state')
       const summarySource = sessionState || sortedRecords[0]
 
+      // Find scenarioId from session_state or any chat record
+      const scenarioId = sessionState?.scenarioId || sortedRecords.find((r) => r.eventType === 'chat' && r.scenarioId)?.scenarioId
+
       const firstLogin = sortedRecords.find((r) => r.eventType === 'login')
       const lastLogout = [...sortedRecords].reverse().find((r) => r.eventType === 'logout')
       const lastChat = [...sortedRecords].reverse().find((r) => r.eventType === 'chat')
@@ -140,7 +143,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         sessionId,
         userId: summarySource?.userId,
         username: summarySource?.username,
-        scenarioId: summarySource?.scenarioId,
+        scenarioId,
         promptVersion: summarySource?.promptVersion,
         completionStatus: summarySource?.completionStatus,
         sessionDurationSeconds: summarySource?.sessionDurationSeconds,

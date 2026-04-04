@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSetupsContainer } from '../../../lib/cosmos'
 import { getSessionCookieName, verifySessionToken } from '../../../lib/auth'
+import { logAdminAction } from '../../../lib/audit-log'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = req.cookies?.[getSessionCookieName()]
@@ -30,6 +31,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'code and prompt are required' })
       }
 
+      const container = await getSetupsContainer()
+      
+      // Check if setup already exists to determine action type
+      let existingSetup = null
+      try {
+        const { resource } = await container.item(code, code).read()
+        existingSetup = resource
+      } catch (error: any) {
+        // Item doesn't exist, which is fine for create
+      }
+
       const itemToInsert = {
         id: code, // Cosmos DB uses 'id' natively
         code,
@@ -41,6 +53,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       const { resource } = await container.items.upsert(itemToInsert)
+      
+      // Log the admin action after successful operation
+      const action = existingSetup ? 'UPDATE_SIM' : 'CREATE_SIM'
+      await logAdminAction(session.userId, action, code, {
+        title,
+        description,
+        updatedAt: itemToInsert.updatedAt
+      })
+      
       return res.status(200).json(resource)
     }
 

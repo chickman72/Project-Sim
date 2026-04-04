@@ -11,8 +11,20 @@ interface User {
   updatedAt: string
 }
 
+interface Simulation {
+  id: string
+  code: string
+  title: string
+  description: string
+  prompt: string
+  userId: string
+  username: string
+  updatedAt: string
+}
+
 export default function AdminPage() {
   const [users, setUsers] = useState<User[]>([])
+  const [simulations, setSimulations] = useState<Simulation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -25,7 +37,9 @@ export default function AdminPage() {
   const [password, setPassword] = useState('')
   const [authLoading, setAuthLoading] = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<'users' | 'analytics'>('users')
+  const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'simulations'>('users')
+  const [selectedSimulation, setSelectedSimulation] = useState<Simulation | null>(null)
+  const [showPromptModal, setShowPromptModal] = useState(false)
 
   useEffect(() => {
     checkAuth()
@@ -41,6 +55,7 @@ export default function AdminPage() {
           setUserName(data.username || data.userId)
           setUserRole(data.role)
           fetchUsers()
+          fetchSimulations()
         } else {
           setLoading(false)
         }
@@ -67,6 +82,22 @@ export default function AdminPage() {
       setError('Failed to load users')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchSimulations = async () => {
+    try {
+      const res = await fetch('/api/admin/simulations')
+      if (res.ok) {
+        const data = await res.json()
+        setSimulations(data)
+      } else if (res.status === 403) {
+        setError('Access denied. Administrator role required.')
+      } else {
+        setError('Failed to load simulations')
+      }
+    } catch (err) {
+      setError('Failed to load simulations')
     }
   }
 
@@ -170,6 +201,31 @@ export default function AdminPage() {
     }
   }
 
+  const handleDeleteSimulation = async (code: string) => {
+    if (!confirm('Are you sure you want to delete this simulation? This action cannot be undone.')) return
+
+    try {
+      const res = await fetch(`/api/admin/simulations?code=${code}`, { method: 'DELETE' })
+      if (res.ok) {
+        await fetchSimulations()
+      } else {
+        setError('Failed to delete simulation')
+      }
+    } catch (err) {
+      setError('Failed to delete simulation')
+    }
+  }
+
+  const handleViewPrompt = (simulation: Simulation) => {
+    setSelectedSimulation(simulation)
+    setShowPromptModal(true)
+  }
+
+  const closePromptModal = () => {
+    setShowPromptModal(false)
+    setSelectedSimulation(null)
+  }
+
   const resetForm = () => {
     setShowAddForm(false)
     setEditingUser(null)
@@ -267,6 +323,13 @@ export default function AdminPage() {
               className={`${activeTab === 'users' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'} rounded-md px-4 py-2 font-medium transition`}
             >
               Users
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('simulations')}
+              className={`${activeTab === 'simulations' ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'} rounded-md px-4 py-2 font-medium transition`}
+            >
+              Simulations
             </button>
             <button
               type="button"
@@ -387,6 +450,68 @@ export default function AdminPage() {
             )}
           </div>
         </div>
+        ) : activeTab === 'simulations' ? (
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold">Simulations</h2>
+              <button
+                type="button"
+                onClick={fetchSimulations}
+                className="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              >
+                Refresh
+              </button>
+            </div>
+            {loading ? (
+              <div>Loading...</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse border border-gray-300">
+                  <thead>
+                    <tr className="bg-gray-100">
+                      <th className="border border-gray-300 p-2 text-left">Created By</th>
+                      <th className="border border-gray-300 p-2 text-left">Title</th>
+                      <th className="border border-gray-300 p-2 text-left">Code</th>
+                      <th className="border border-gray-300 p-2 text-left">Description</th>
+                      <th className="border border-gray-300 p-2 text-left">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {simulations.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="border border-gray-300 p-4 text-center text-gray-500">
+                          No simulations found.
+                        </td>
+                      </tr>
+                    ) : (
+                      simulations.map(simulation => (
+                        <tr key={simulation.id}>
+                          <td className="border border-gray-300 p-2">{simulation.username}</td>
+                          <td className="border border-gray-300 p-2">{simulation.title || 'Untitled'}</td>
+                          <td className="border border-gray-300 p-2 font-mono">{simulation.code}</td>
+                          <td className="border border-gray-300 p-2 max-w-xs truncate">{simulation.description || ''}</td>
+                          <td className="border border-gray-300 p-2">
+                            <button
+                              onClick={() => handleViewPrompt(simulation)}
+                              className="px-3 py-1 bg-blue-500 text-white text-sm rounded-md hover:bg-blue-600 mr-2"
+                            >
+                              View Prompt
+                            </button>
+                            <button
+                              onClick={() => handleDeleteSimulation(simulation.code)}
+                              className="px-3 py-1 bg-red-500 text-white text-sm rounded-md hover:bg-red-600"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         ) : (
           <div className="grid grid-cols-1 gap-8">
             <div className="bg-white rounded-lg shadow-md p-6">
@@ -395,6 +520,38 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* Prompt Modal */}
+      {showPromptModal && selectedSimulation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
+            <div className="flex justify-between items-center p-6 border-b">
+              <h3 className="text-xl font-semibold">
+                Prompt for "{selectedSimulation.title || 'Untitled'}" ({selectedSimulation.code})
+              </h3>
+              <button
+                onClick={closePromptModal}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+              <div className="bg-gray-50 p-4 rounded-md">
+                <pre className="whitespace-pre-wrap text-sm font-mono">{selectedSimulation.prompt}</pre>
+              </div>
+            </div>
+            <div className="flex justify-end p-6 border-t">
+              <button
+                onClick={closePromptModal}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

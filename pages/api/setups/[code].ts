@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSetupsContainer } from '../../../lib/cosmos'
 import { getSessionCookieName, verifySessionToken } from '../../../lib/auth'
+import { logAdminAction } from '../../../lib/audit-log'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { code } = req.query
@@ -39,14 +40,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(401).json({ error: 'Not authenticated' })
       }
 
-      // Ideally we should check if this setup belongs to the user, but for simplicity:
+      const container = await getSetupsContainer()
+      
+      // Read the setup first to get details for logging
+      let existingSetup = null
       try {
-        await container.item(code, code).delete()
-        return res.status(200).json({ success: true })
+        const { resource } = await container.item(code, code).read()
+        existingSetup = resource
       } catch (error: any) {
         if (error.code === 404) return res.status(404).json({ error: 'Setup not found' })
         throw error
       }
+
+      // Delete the setup
+      await container.item(code, code).delete()
+      
+      // Log the admin action after successful deletion
+      await logAdminAction(session.userId, 'DELETE_SIM', code, {
+        title: existingSetup?.title,
+        description: existingSetup?.description,
+        deletedAt: new Date().toISOString()
+      })
+      
+      return res.status(200).json({ success: true })
     }
 
     return res.status(405).end()
