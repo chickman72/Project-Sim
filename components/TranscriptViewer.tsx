@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 
 type TranscriptMessage = {
   role: 'student' | 'assistant'
@@ -9,6 +9,9 @@ type TranscriptMessage = {
 type TranscriptViewerProps = {
   open: boolean
   title: string
+  sessionId?: string
+  exportStudentName?: string
+  exportSimulationTitle?: string
   loading: boolean
   error: string | null
   messages: TranscriptMessage[]
@@ -20,6 +23,9 @@ type TranscriptViewerProps = {
 export default function TranscriptViewer({
   open,
   title,
+  sessionId,
+  exportStudentName,
+  exportSimulationTitle,
   loading,
   error,
   messages,
@@ -27,7 +33,70 @@ export default function TranscriptViewer({
   assistantLabel = 'Patient',
   onClose,
 }: TranscriptViewerProps) {
+  const [pdfError, setPdfError] = useState<string | null>(null)
+
   if (!open) return null
+
+  const toSafeFileToken = (value: string) =>
+    value
+      .trim()
+      .replace(/\s+/g, '_')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .replace(/_+/g, '_')
+      .replace(/^_+|_+$/g, '')
+
+  const downloadTranscriptPdf = async () => {
+    setPdfError(null)
+    const lines: string[] = [
+      `Transcript Review`,
+      `Session: ${sessionId || 'Unknown'}`,
+      `Title: ${title || 'Transcript'}`,
+      '',
+    ]
+
+    messages.forEach((message) => {
+      const speaker = message.role === 'student' ? studentLabel : assistantLabel
+      const when = message.timestamp ? new Date(message.timestamp).toLocaleString() : ''
+      if (when) {
+        lines.push(`${when} - ${speaker}`)
+      } else {
+        lines.push(`${speaker}`)
+      }
+      lines.push(`  ${message.content || ''}`)
+      lines.push('')
+    })
+
+    try {
+      const module = await import('jspdf')
+      const { jsPDF } = module as any
+      const doc = new jsPDF()
+      doc.setFontSize(10)
+
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      const margin = 15
+      const maxWidth = pageWidth - 2 * margin
+      let yPosition = margin
+
+      const wrappedLines = lines.flatMap((line) => doc.splitTextToSize(line || ' ', maxWidth))
+      wrappedLines.forEach((wrappedLine) => {
+        if (yPosition + 7 > pageHeight - margin) {
+          doc.addPage()
+          yPosition = margin
+        }
+        doc.text(wrappedLine, margin, yPosition)
+        yPosition += 7
+      })
+
+      const studentPart = toSafeFileToken(exportStudentName || 'student')
+      const simulationPart = toSafeFileToken(exportSimulationTitle || title || 'simulation')
+      const baseName = `transcript-${studentPart}-${simulationPart}`
+      doc.save(`${baseName}.pdf`)
+    } catch (err) {
+      console.error('Failed to generate transcript PDF:', err)
+      setPdfError('Unable to generate PDF. Please try again.')
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-50">
@@ -42,15 +111,25 @@ export default function TranscriptViewer({
             <h3 className="text-lg font-semibold text-gray-900">Transcript Review</h3>
             <p className="text-sm text-gray-600 truncate">{title}</p>
           </div>
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
-          >
-            Close
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={downloadTranscriptPdf}
+              disabled={loading || !!error || messages.length === 0}
+              className="px-3 py-1.5 rounded-md bg-blue-600 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              Download PDF
+            </button>
+            <button
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              Close
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+          {pdfError && <p className="mb-3 text-sm text-red-600">{pdfError}</p>}
           {loading && <p className="text-sm text-gray-600">Loading transcript...</p>}
           {!loading && error && <p className="text-sm text-red-600">{error}</p>}
           {!loading && !error && messages.length === 0 && (

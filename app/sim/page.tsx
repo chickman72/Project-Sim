@@ -18,6 +18,7 @@ type Assignment = {
   description: string
   assignedCohortId?: string
   isGlobal: boolean
+  isPracticeMode?: boolean
 }
 
 type CompletedScenario = {
@@ -99,6 +100,7 @@ export default function Page() {
   const [activeSimulationCode, setActiveSimulationCode] = useState('')
   const [activeSimulationTitle, setActiveSimulationTitle] = useState('')
   const [activeSimulationDescription, setActiveSimulationDescription] = useState('')
+  const [activeSimulationIsPracticeMode, setActiveSimulationIsPracticeMode] = useState(false)
   const [simulationStartedAt, setSimulationStartedAt] = useState<number | null>(null)
 
   const [input, setInput] = useState('')
@@ -107,9 +109,13 @@ export default function Page() {
 
   const [voiceMode, setVoiceMode] = useState(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [isConfirmOpen, setIsConfirmOpen] = useState(false)
+  const [isCompletingSession, setIsCompletingSession] = useState(false)
 
   const [transcriptOpen, setTranscriptOpen] = useState(false)
+  const [transcriptSessionId, setTranscriptSessionId] = useState<string | undefined>(undefined)
   const [transcriptTitle, setTranscriptTitle] = useState('')
+  const [transcriptSimTitle, setTranscriptSimTitle] = useState<string | undefined>(undefined)
   const [transcriptMessages, setTranscriptMessages] = useState<TranscriptMessage[]>([])
   const [transcriptLoading, setTranscriptLoading] = useState(false)
   const [transcriptError, setTranscriptError] = useState<string | null>(null)
@@ -246,6 +252,7 @@ export default function Page() {
       setActiveSimulationCode('')
       setActiveSimulationTitle('')
       setActiveSimulationDescription('')
+      setActiveSimulationIsPracticeMode(false)
       setSimulationStartedAt(null)
       setVoiceMode(false)
       setVoiceError(null)
@@ -300,6 +307,7 @@ export default function Page() {
       setActiveSimulationCode(assignment.code)
       setActiveSimulationTitle(setup.title || assignment.title || 'Simulation')
       setActiveSimulationDescription(setup.description || assignment.description || '')
+      setActiveSimulationIsPracticeMode(Boolean(assignment.isPracticeMode))
       setSimulationStartedAt(Date.now())
       setView('chat')
     } catch (err: any) {
@@ -311,6 +319,7 @@ export default function Page() {
     if (!activeSimulationCode) return
 
     try {
+      setIsCompletingSession(true)
       const sessionDurationSeconds = simulationStartedAt
         ? Math.max(0, Math.floor((Date.now() - simulationStartedAt) / 1000))
         : undefined
@@ -332,13 +341,17 @@ export default function Page() {
       clear()
       setInput('')
       setView('hub')
+      setIsConfirmOpen(false)
       setActiveSimulationCode('')
       setActiveSimulationTitle('')
       setActiveSimulationDescription('')
+      setActiveSimulationIsPracticeMode(false)
       setSimulationStartedAt(null)
       await fetchHubData()
     } catch (err: any) {
       setError(err?.message || 'Failed to complete simulation')
+    } finally {
+      setIsCompletingSession(false)
     }
   }
 
@@ -347,6 +360,7 @@ export default function Page() {
     disconnect()
     setVoiceMode(false)
     setView('hub')
+    setActiveSimulationIsPracticeMode(false)
     clear()
     setInput('')
     await fetchHubData()
@@ -499,7 +513,9 @@ export default function Page() {
 
   const openTranscript = async (session: CompletedScenario) => {
     setTranscriptOpen(true)
+    setTranscriptSessionId(session.sessionId)
     setTranscriptTitle(session.scenarioName)
+    setTranscriptSimTitle(session.scenarioName)
     setTranscriptMessages([])
     setTranscriptError(null)
     setTranscriptLoading(true)
@@ -602,9 +618,9 @@ export default function Page() {
               <div className="text-xs text-gray-600">Logged in as: {userName || userId}</div>
               <button
                 className="w-full px-3 py-2 bg-emerald-600 text-white rounded-md text-sm hover:bg-emerald-700"
-                onClick={completeSimulation}
+                onClick={() => setIsConfirmOpen(true)}
               >
-                Mark Complete
+                {activeSimulationIsPracticeMode ? 'End Practice Session' : 'Complete & Submit for Grading'}
               </button>
               <button
                 className="w-full px-3 py-2 bg-gray-200 text-gray-800 rounded-md text-sm hover:bg-gray-300"
@@ -663,6 +679,52 @@ export default function Page() {
             </div>
           </div>
         </div>
+
+        {isConfirmOpen && (
+          <div className="fixed inset-0 z-50">
+            <button
+              className="absolute inset-0 bg-black/40"
+              onClick={() => {
+                if (!isCompletingSession) setIsConfirmOpen(false)
+              }}
+              aria-label="Close confirmation modal"
+            />
+            <div className="relative mx-auto mt-24 w-[92%] max-w-lg rounded-xl border border-gray-200 bg-white shadow-xl p-5">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {activeSimulationIsPracticeMode ? 'End Practice Session?' : 'Submit Graded Simulation?'}
+              </h3>
+              <p className="mt-2 text-sm text-gray-600">
+                {activeSimulationIsPracticeMode
+                  ? 'Are you sure you want to end this practice session? You can always start a new one later.'
+                  : 'Are you sure you are ready to submit? This is a graded assessment. You will not be able to edit or resume this session once completed.'}
+              </p>
+              <div className="mt-5 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmOpen(false)}
+                  disabled={isCompletingSession}
+                  className="px-3 py-2 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={completeSimulation}
+                  disabled={isCompletingSession}
+                  className={`px-3 py-2 rounded-md text-sm text-white disabled:opacity-60 ${
+                    activeSimulationIsPracticeMode ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
+                  }`}
+                >
+                  {isCompletingSession
+                    ? 'Submitting...'
+                    : activeSimulationIsPracticeMode
+                      ? 'End Session'
+                      : 'Yes, Submit for Grading'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -798,6 +860,9 @@ export default function Page() {
 
       <TranscriptViewer
         open={transcriptOpen}
+        sessionId={transcriptSessionId}
+        exportStudentName={userName || userId || 'student'}
+        exportSimulationTitle={transcriptSimTitle}
         title={transcriptTitle}
         loading={transcriptLoading}
         error={transcriptError}

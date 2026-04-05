@@ -12,6 +12,8 @@ type SessionStateDoc = {
   sessionId: string
   eventType: string
   timestamp?: string
+  completionStatus?: 'in-progress' | 'completed' | 'abandoned' | 'timeout'
+  sessionDurationSeconds?: number
   evaluationStatus?: EvaluationStatus
   evaluationData?: EvaluationCriterion[]
 }
@@ -48,7 +50,7 @@ export const getLatestSessionStateDoc = async (sessionId: string): Promise<Sessi
   const container = await getLogsContainer()
   const { resources } = await container.items.query<SessionStateDoc>({
     query:
-      'SELECT TOP 1 c.id, c.sessionId, c.eventType, c.timestamp, c.evaluationStatus, c.evaluationData FROM c WHERE c.sessionId = @sessionId AND c.eventType = @eventType ORDER BY c.timestamp DESC',
+      'SELECT TOP 1 c.id, c.sessionId, c.eventType, c.timestamp, c.completionStatus, c.sessionDurationSeconds, c.evaluationStatus, c.evaluationData FROM c WHERE c.sessionId = @sessionId AND c.eventType = @eventType ORDER BY c.timestamp DESC',
     parameters: [
       { name: '@sessionId', value: sessionId },
       { name: '@eventType', value: 'session_state' },
@@ -71,6 +73,23 @@ export const updateSessionEvaluation = async (
 
   resource.evaluationStatus = evaluationStatus
   resource.evaluationData = evaluationData
+  resource.updatedAt = new Date().toISOString()
+
+  await container.item(current.id, sessionId).replace(resource)
+  return resource
+}
+
+export const reopenSimSessionInternal = async (sessionId: string) => {
+  const container = await getLogsContainer()
+  const current = await getLatestSessionStateDoc(sessionId)
+  if (!current) throw new Error('Session record not found')
+
+  const { resource } = await container.item(current.id, sessionId).read<any>()
+  if (!resource) throw new Error('Session record not found')
+
+  resource.completionStatus = 'in-progress'
+  resource.evaluationStatus = 'none'
+  resource.evaluationData = []
   resource.updatedAt = new Date().toISOString()
 
   await container.item(current.id, sessionId).replace(resource)

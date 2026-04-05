@@ -34,7 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'POST') {
       // Create or update a setup
-      const { code, title, description, prompt, assignedCohortId, visibility, rubric } = req.body
+      const { code, title, description, prompt, assignedCohortId, visibility, isPracticeMode, rubric } = req.body
       if (!code || !prompt) {
         return res.status(400).json({ error: 'code and prompt are required' })
       }
@@ -102,6 +102,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         prompt,
         visibility: normalizedVisibility,
         assignedCohortId: normalizedAssignedCohortId,
+        isPracticeMode: Boolean(isPracticeMode),
         rubric: normalizedRubric,
         userId: session.userId,
         updatedAt: new Date().toISOString()

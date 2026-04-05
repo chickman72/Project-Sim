@@ -22,6 +22,7 @@ interface Simulation {
   username: string
   updatedAt: string
   assignedCohortId?: string
+  isPracticeMode?: boolean
   rubric?: Array<{ id: string; name: string; successCondition: string }>
 }
 

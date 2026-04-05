@@ -10,6 +10,7 @@ type Assignment = {
   description: string
   assignedCohortId?: string
   visibility?: 'global' | 'cohort' | 'private'
+  isPracticeMode?: boolean
   isGlobal: boolean
 }
 
@@ -29,27 +30,45 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const cohortIds = new Set(cohorts.map((cohort) => cohort.id))
 
     const logsContainer = await getLogsContainer()
-    const { resources: completedRows } = await logsContainer.items.query<{ scenarioId?: string }>(
+    const { resources: sessionStateRows } = await logsContainer.items.query<{
+      scenarioId?: string
+      completionStatus?: 'in-progress' | 'completed' | 'abandoned' | 'timeout'
+      timestamp?: string
+    }>(
       {
         query:
-          'SELECT c.scenarioId FROM c WHERE c.userId = @userId AND c.eventType = @eventType AND c.completionStatus = @status AND IS_DEFINED(c.scenarioId)',
+          'SELECT c.scenarioId, c.completionStatus, c.timestamp FROM c WHERE c.userId = @userId AND c.eventType = @eventType AND IS_DEFINED(c.scenarioId)',
         parameters: [
           { name: '@userId', value: session.userId },
           { name: '@eventType', value: 'session_state' },
-          { name: '@status', value: 'completed' },
         ],
       }
     ).fetchAll()
 
+    const latestByScenario = new Map<string, { completionStatus?: string; timestamp?: string }>()
+    for (const row of sessionStateRows) {
+      const scenarioId = typeof row.scenarioId === 'string' ? row.scenarioId : ''
+      if (!scenarioId) continue
+      const existing = latestByScenario.get(scenarioId)
+      const rowTime = new Date(row.timestamp || '').getTime()
+      const existingTime = new Date(existing?.timestamp || '').getTime()
+      if (!existing || rowTime > existingTime) {
+        latestByScenario.set(scenarioId, {
+          completionStatus: row.completionStatus,
+          timestamp: row.timestamp,
+        })
+      }
+    }
+
     const completedScenarioIds = new Set(
-      completedRows
-        .map((row) => row.scenarioId)
-        .filter((scenarioId): scenarioId is string => typeof scenarioId === 'string' && scenarioId.length > 0)
+      Array.from(latestByScenario.entries())
+        .filter(([, value]) => value.completionStatus === 'completed')
+        .map(([scenarioId]) => scenarioId)
     )
 
     const setupsContainer = await getSetupsContainer()
     const { resources } = await setupsContainer.items
-      .query<Assignment>('SELECT c.id, c.code, c.title, c.description, c.assignedCohortId, c.visibility FROM c')
+      .query<Assignment>('SELECT c.id, c.code, c.title, c.description, c.assignedCohortId, c.visibility, c.isPracticeMode FROM c')
       .fetchAll()
 
     const activeAssignments = resources
@@ -62,6 +81,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
               ? !!sim.assignedCohortId && cohortIds.has(sim.assignedCohortId)
               : false // private simulations remain hidden until explicitly assigned
         if (!accessible) return false
+        if (sim.isPracticeMode) return true
         return !completedScenarioIds.has(sim.code)
       })
       .map((sim) => ({
@@ -71,6 +91,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         title: sim.title || 'Untitled Scenario',
         description: sim.description || 'No description provided.',
         assignedCohortId: sim.assignedCohortId,
+        isPracticeMode: Boolean(sim.isPracticeMode),
         isGlobal: (sim.visibility || (sim.assignedCohortId ? 'cohort' : 'global')) === 'global',
       }))
 

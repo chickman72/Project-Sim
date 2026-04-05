@@ -19,6 +19,7 @@ type Simulation = {
   description: string
   assignedCohortId?: string
   visibility?: SimulationVisibility
+  isPracticeMode?: boolean
   rubric?: RubricCriterion[]
 }
 
@@ -49,6 +50,7 @@ export default function Page() {
   const [description, setDescription] = useState('')
   const [setups, setSetups] = useState<Simulation[]>([])
   const [rubric, setRubric] = useState<RubricCriterion[]>([])
+  const [isPracticeMode, setIsPracticeMode] = useState(false)
   const [cohorts, setCohorts] = useState<{ id: string; name: string }[]>([])
   const [selectedVisibility, setSelectedVisibility] = useState<SimulationVisibility>('global')
   const [selectedCohortId, setSelectedCohortId] = useState<string | undefined>(undefined)
@@ -72,6 +74,7 @@ export default function Page() {
             description: s.description || '',
             assignedCohortId: s.assignedCohortId,
             visibility: s.visibility || (s.assignedCohortId ? 'cohort' : 'global'),
+            isPracticeMode: Boolean(s.isPracticeMode),
             rubric: Array.isArray(s.rubric) ? s.rubric : []
           }))
           setSetups(setupsWithTitles)
@@ -130,7 +133,15 @@ export default function Page() {
 
   const saveSetup = async () => {
     const codeToUse = simulationCode || Math.random().toString(36).substring(2, 8).toUpperCase()
-    const setupData: any = { code: codeToUse, title, description, prompt: systemPrompt, visibility: selectedVisibility, rubric }
+    const setupData: any = {
+      code: codeToUse,
+      title,
+      description,
+      prompt: systemPrompt,
+      visibility: selectedVisibility,
+      isPracticeMode,
+      rubric,
+    }
     
     // Add assignedCohortId only for cohort visibility.
     if (selectedVisibility === 'cohort' && selectedCohortId) {
@@ -316,6 +327,24 @@ export default function Page() {
                 )}
               </div>
 
+              <div className="mb-4 rounded-md border border-gray-200 bg-gray-50 p-3">
+                <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-800">
+                  <input
+                    type="checkbox"
+                    checked={isPracticeMode}
+                    onChange={(e) => {
+                      setIsPracticeMode(e.target.checked)
+                      setIsDirty(true)
+                    }}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Practice Mode (Ungraded)
+                </label>
+                <p className="mt-1 text-xs text-gray-600">
+                  Practice simulations always remain available for fresh attempts and are not treated as graded submissions.
+                </p>
+              </div>
+
               <label className="block text-sm font-medium text-gray-700 mb-1">Scenario Prompt</label>
               <textarea
                 value={systemPrompt}
@@ -414,6 +443,7 @@ export default function Page() {
                   setRubric([])
                   setSelectedVisibility('global')
                   setSelectedCohortId(undefined)
+                  setIsPracticeMode(false)
                   setSimulationCode(null)
                   setIsDirty(false)
                 }}
@@ -462,6 +492,9 @@ export default function Page() {
                             📌 Assigned: {cohorts.find(c => c.id === setup.assignedCohortId)?.name || 'Unknown Class'}
                           </p>
                         )}
+                        {setup.isPracticeMode && (
+                          <p className="text-xs text-indigo-700 mt-1">Practice Mode</p>
+                        )}
                       </div>
                       <div className="flex-shrink-0 flex items-center space-x-2">
                         <button
@@ -473,6 +506,7 @@ export default function Page() {
                             const visibility = setup.visibility || (setup.assignedCohortId ? 'cohort' : 'global')
                             setSelectedVisibility(visibility)
                             setSelectedCohortId(visibility === 'cohort' ? setup.assignedCohortId : undefined)
+                            setIsPracticeMode(Boolean(setup.isPracticeMode))
                             setRubric(Array.isArray(setup.rubric) ? setup.rubric : [])
                             setSimulationCode(setup.code)
                             setIsDirty(false)

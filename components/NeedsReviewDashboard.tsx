@@ -80,7 +80,10 @@ export default function NeedsReviewDashboard() {
   const [busySessionId, setBusySessionId] = useState<string | null>(null)
 
   const [transcriptOpen, setTranscriptOpen] = useState(false)
+  const [transcriptSessionId, setTranscriptSessionId] = useState<string | undefined>(undefined)
   const [transcriptTitle, setTranscriptTitle] = useState('')
+  const [transcriptStudentName, setTranscriptStudentName] = useState<string | undefined>(undefined)
+  const [transcriptSimulationTitle, setTranscriptSimulationTitle] = useState<string | undefined>(undefined)
   const [transcriptMessages, setTranscriptMessages] = useState<TranscriptMessage[]>([])
   const [transcriptLoading, setTranscriptLoading] = useState(false)
   const [transcriptError, setTranscriptError] = useState<string | null>(null)
@@ -132,7 +135,10 @@ export default function NeedsReviewDashboard() {
 
   const openTranscript = async (row: NeedsReviewRow) => {
     setTranscriptOpen(true)
+    setTranscriptSessionId(row.sessionId)
     setTranscriptTitle(`${row.simulationName} - ${row.studentName}`)
+    setTranscriptStudentName(row.studentName)
+    setTranscriptSimulationTitle(row.simulationName)
     setTranscriptMessages([])
     setTranscriptError(null)
     setTranscriptLoading(true)
@@ -174,6 +180,24 @@ export default function NeedsReviewDashboard() {
       await loadData(cohortFilter || undefined, simulationFilter || undefined)
     } catch (err: any) {
       setError(err?.message || 'Failed to run AI evaluation')
+    } finally {
+      setBusySessionId(null)
+    }
+  }
+
+  const reopenSession = async (row: NeedsReviewRow) => {
+    try {
+      setBusySessionId(row.sessionId)
+      const resp = await fetch('/api/instructor/reopen-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: row.sessionId }),
+      })
+      const data = await resp.json().catch(() => null)
+      if (!resp.ok) throw new Error(data?.error || 'Failed to reopen session')
+      await loadData(cohortFilter || undefined, simulationFilter || undefined)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to reopen session')
     } finally {
       setBusySessionId(null)
     }
@@ -302,11 +326,20 @@ export default function NeedsReviewDashboard() {
                   <td className="px-3 py-3 text-gray-700">{formatDuration(row.durationSeconds)}</td>
                   <td className="px-3 py-3 text-gray-400">-</td>
                   <td className="px-3 py-3">
+                    {row.status === 'completed' && (
+                      <button
+                        onClick={() => reopenSession(row)}
+                        disabled={busySessionId === row.sessionId}
+                        className="mr-2 mb-1 px-3 py-1.5 rounded-md bg-slate-600 text-white text-xs font-medium hover:bg-slate-700 disabled:opacity-50"
+                      >
+                        {busySessionId === row.sessionId ? 'Reopening...' : 'Reopen Session'}
+                      </button>
+                    )}
                     {row.evaluationStatus === 'none' && (
                       <button
                         onClick={() => runAIEval(row)}
                         disabled={busySessionId === row.sessionId}
-                        className="px-3 py-1.5 rounded-md bg-violet-600 text-white text-xs font-medium hover:bg-violet-700 disabled:opacity-50"
+                        className="mb-1 px-3 py-1.5 rounded-md bg-violet-600 text-white text-xs font-medium hover:bg-violet-700 disabled:opacity-50"
                       >
                         {busySessionId === row.sessionId ? 'Running...' : 'Run AI Eval'}
                       </button>
@@ -342,6 +375,9 @@ export default function NeedsReviewDashboard() {
 
       <TranscriptViewer
         open={transcriptOpen}
+        sessionId={transcriptSessionId}
+        exportStudentName={transcriptStudentName}
+        exportSimulationTitle={transcriptSimulationTitle}
         title={transcriptTitle}
         loading={transcriptLoading}
         error={transcriptError}
