@@ -13,18 +13,23 @@ const roleHome = (role?: string) => {
 }
 
 const getSessionInfo = async (request: NextRequest): Promise<SessionInfo | null> => {
-  const cookie = request.headers.get('cookie') || ''
-  const meUrl = new URL('/api/auth/me', request.url)
+  try {
+    const cookie = request.headers.get('cookie') || ''
+    const meUrl = new URL('/api/auth/me', request.url)
 
-  const resp = await fetch(meUrl, {
-    headers: { cookie },
-    cache: 'no-store',
-  })
+    const resp = await fetch(meUrl, {
+      headers: { cookie },
+      cache: 'no-store',
+    })
 
-  if (!resp.ok) return null
-  const data = await resp.json().catch(() => null)
-  if (!data?.userId || !data?.role) return null
-  return data as SessionInfo
+    if (!resp.ok) return null
+    const data = await resp.json().catch(() => null)
+    if (!data?.userId || !data?.role) return null
+    return data as SessionInfo
+  } catch {
+    // Fail-safe for hosting environments where internal fetch can intermittently fail.
+    return null
+  }
 }
 
 export async function proxy(request: NextRequest) {
