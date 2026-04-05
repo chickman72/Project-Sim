@@ -4,6 +4,14 @@ import { toAuditJson, writeAuditRecord } from 'lib/audit-log'
 import { listUsers, createUser, updateUser } from 'lib/user'
 import { getCohortsByStudent } from 'lib/cohort'
 
+const normalizeRole = (role: string | undefined | null): 'Student' | 'Instructor' | 'Administrator' => {
+  const raw = String(role || '').trim().toLowerCase()
+  if (raw === 'student') return 'Student'
+  if (raw === 'instructor') return 'Instructor'
+  if (raw === 'administrator' || raw === 'admin') return 'Administrator'
+  return 'Student'
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end()
 
@@ -45,28 +53,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
+    let normalizedRole = normalizeRole(user.role)
+    if (normalizedRole !== user.role) {
+      await updateUser(user.id, { role: normalizedRole })
+      user.role = normalizedRole
+    }
+
     // Only allow AUTH_PASSWORD elevation for the dedicated bootstrap admin account.
     const expected = process.env.AUTH_PASSWORD
     if (
       expected &&
       password === expected &&
-      user.role !== 'Administrator' &&
+      normalizedRole !== 'Administrator' &&
       user.username === 'admin'
     ) {
       await updateUser(user.id, { role: 'Administrator' })
       user.role = 'Administrator'
+      normalizedRole = 'Administrator'
     }
 
     // Auto-correct accounts that were accidentally promoted but are clearly student accounts.
-    if (user.role === 'Administrator' && user.username !== 'admin') {
+    if (normalizedRole === 'Administrator' && user.username !== 'admin') {
       const enrolledCohorts = await getCohortsByStudent(user.id)
       if (enrolledCohorts.length > 0) {
         await updateUser(user.id, { role: 'Student' })
         user.role = 'Student'
+        normalizedRole = 'Student'
       }
     }
 
-    const token = createSessionToken(user.id, user.role)
+    const token = createSessionToken(user.id, normalizedRole)
     const session = verifySessionToken(token)
     const secure = process.env.NODE_ENV === 'production'
     const cookie = `${getSessionCookieName()}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 12}${secure ? '; Secure' : ''}`
@@ -90,16 +106,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const needsPasswordChange = user.requiresPasswordChange ?? false
     const redirectTo = needsPasswordChange
       ? '/reset-password'
-      : user.role === 'Student'
+      : normalizedRole === 'Student'
         ? '/sim'
-        : user.role === 'Instructor'
+        : normalizedRole === 'Instructor'
           ? '/config'
           : '/admin'
 
     return res.status(200).json({
       userId: user.id,
       username: user.username,
-      role: user.role,
+      role: normalizedRole,
       requiresPasswordChange: needsPasswordChange,
       redirectTo,
     })

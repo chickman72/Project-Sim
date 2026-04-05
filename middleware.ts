@@ -5,36 +5,53 @@ type SessionInfo = {
   role?: 'Administrator' | 'Instructor' | 'Student'
 }
 
+const COOKIE_NAME = 'psim_session'
+
+const normalizeRole = (role: string | undefined | null): 'Administrator' | 'Instructor' | 'Student' | undefined => {
+  const raw = String(role || '').trim().toLowerCase()
+  if (raw === 'administrator' || raw === 'admin') return 'Administrator'
+  if (raw === 'instructor') return 'Instructor'
+  if (raw === 'student') return 'Student'
+  return undefined
+}
+
 const roleHome = (role?: string) => {
-  if (role === 'Student') return '/sim'
-  if (role === 'Instructor') return '/config'
-  if (role === 'Administrator') return '/admin'
+  const normalized = normalizeRole(role)
+  if (normalized === 'Student') return '/sim'
+  if (normalized === 'Instructor') return '/config'
+  if (normalized === 'Administrator') return '/admin'
   return '/'
 }
 
-const getSessionInfo = async (request: NextRequest): Promise<SessionInfo | null> => {
+const decodeBase64UrlJson = (value: string): any | null => {
   try {
-    const cookie = request.headers.get('cookie') || ''
-    const meUrl = new URL('/api/auth/me', request.url)
-
-    const resp = await fetch(meUrl, {
-      headers: { cookie },
-      cache: 'no-store',
-    })
-
-    if (!resp.ok) return null
-    const data = await resp.json().catch(() => null)
-    if (!data?.userId || !data?.role) return null
-    return data as SessionInfo
+    const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4)
+    const json = atob(padded)
+    return JSON.parse(json)
   } catch {
-    // Fail-safe for hosting environments where internal fetch can intermittently fail.
     return null
   }
 }
 
+const getSessionInfo = (request: NextRequest): SessionInfo | null => {
+  const token = request.cookies.get(COOKIE_NAME)?.value
+  if (!token) return null
+
+  const [payloadB64] = token.split('.')
+  if (!payloadB64) return null
+
+  const payload = decodeBase64UrlJson(payloadB64)
+  if (!payload?.userId) return null
+  const role = normalizeRole(payload.role)
+  if (!role) return null
+
+  return { userId: String(payload.userId), role }
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
-  const session = await getSessionInfo(request)
+  const session = getSessionInfo(request)
 
   if (pathname === '/' || pathname === '/login') {
     if (!session) return NextResponse.next()
