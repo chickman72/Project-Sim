@@ -87,7 +87,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       console.error('Failed writing audit log', logErr)
     }
 
-    return res.status(200).json({ userId: user.id, username: user.username, role: user.role, requiresPasswordChange: user.requiresPasswordChange ?? false })
+    const needsPasswordChange = user.requiresPasswordChange ?? false
+    const redirectTo = needsPasswordChange
+      ? '/reset-password'
+      : user.role === 'Student'
+        ? '/sim'
+        : user.role === 'Instructor'
+          ? '/config'
+          : '/admin'
+
+    return res.status(200).json({
+      userId: user.id,
+      username: user.username,
+      role: user.role,
+      requiresPasswordChange: needsPasswordChange,
+      redirectTo,
+    })
   } catch (err: any) {
     try {
       await writeAuditRecord({

@@ -36,9 +36,6 @@ export default function AdminPage() {
   const [userId, setUserId] = useState<string | null>(null)
   const [userName, setUserName] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<'Administrator' | 'Instructor' | 'Student' | null>(null)
-  const [loginId, setLoginId] = useState('')
-  const [password, setPassword] = useState('')
-  const [authLoading, setAuthLoading] = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'simulations'>('users')
   const [selectedSimulation, setSelectedSimulation] = useState<Simulation | null>(null)
@@ -64,12 +61,15 @@ export default function AdminPage() {
           fetchUsers()
           fetchSimulations()
         } else {
+          router.replace('/')
           setLoading(false)
         }
       } else {
+        router.replace('/')
         setLoading(false)
       }
     } catch {
+      router.replace('/')
       setLoading(false)
     }
   }
@@ -108,45 +108,6 @@ export default function AdminPage() {
     }
   }
 
-  const login = async () => {
-    setError(null)
-    setAuthLoading(true)
-    try {
-      const resp = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: loginId, password }),
-      })
-      const text = await resp.text()
-      let data: any = null
-      try { data = text ? JSON.parse(text) : null } catch { data = { raw: text } }
-      if (!resp.ok) {
-        const detail = data?.error ?? data?.raw ?? `Status ${resp.status}`
-        throw new Error(String(detail))
-      }
-      if (data.role !== 'Administrator') {
-        throw new Error('Access denied. Administrator role required.')
-      }
-      
-      // Check if user needs to reset password
-      if (data.requiresPasswordChange) {
-        // Redirect to password reset page instead of logging in
-        router.push('/reset-password')
-        return
-      }
-
-      setUserId(String(data.userId || loginId))
-      setUserName(data.username || loginId)
-      setUserRole(data.role)
-      setPassword('')
-      fetchUsers()
-    } catch (err: any) {
-      setError(err.message || 'Login failed')
-    } finally {
-      setAuthLoading(false)
-    }
-  }
-
   const logout = async () => {
     setError(null)
     try {
@@ -155,12 +116,11 @@ export default function AdminPage() {
       setUserId(null)
       setUserName(null)
       setUserRole(null)
-      setLoginId('')
-      setPassword('')
       setUsers([])
       setShowAddForm(false)
       setEditingUser(null)
       setFormData({ username: '', password: '', role: 'Student' })
+      router.replace('/')
     }
   }
 
@@ -279,43 +239,8 @@ export default function AdminPage() {
     return (
       <div className="h-screen bg-gray-50 flex items-center justify-center">
         <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8">
-          <h1 className="text-3xl font-bold text-center text-gray-900 mb-6">Administrator Login</h1>
-          {error && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-md mb-6" role="alert">
-              <span className="block sm:inline">{error}</span>
-            </div>
-          )}
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Login ID</label>
-              <input
-                value={loginId}
-                onChange={(e) => setLoginId(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., admin"
-                autoComplete="username"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter password"
-                type="password"
-                autoComplete="current-password"
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); login() } }}
-              />
-            </div>
-            <button
-              className="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              onClick={login}
-              disabled={authLoading || !loginId.trim() || !password}
-            >
-              {authLoading ? 'Logging in...' : 'Log In'}
-            </button>
-          </div>
+          <h1 className="text-2xl font-semibold text-center text-gray-900 mb-2">Redirecting...</h1>
+          <p className="text-sm text-gray-600 text-center">Taking you to the main login page.</p>
         </div>
       </div>
     )

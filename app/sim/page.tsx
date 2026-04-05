@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useRef, useState } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { create } from 'zustand'
 import { usePatientVoice } from '../../lib/usePatientVoice'
 import TranscriptViewer from '../../components/TranscriptViewer'
@@ -69,6 +69,7 @@ const formatDuration = (seconds?: number) => {
 }
 
 export default function Page() {
+  const router = useRouter()
   const systemPrompt = useStore((s) => s.systemPrompt)
   const setSystemPrompt = useStore((s) => s.setSystemPrompt)
   const messages = useStore((s) => s.messages)
@@ -78,9 +79,7 @@ export default function Page() {
   const [userId, setUserId] = useState<string | null>(null)
   const [userName, setUserName] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<'Administrator' | 'Instructor' | 'Student' | null>(null)
-  const [loginId, setLoginId] = useState('')
-  const [password, setPassword] = useState('')
-  const [authLoading, setAuthLoading] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
 
   const [hubTab, setHubTab] = useState<'active' | 'completed'>('active')
@@ -168,50 +167,30 @@ export default function Page() {
           setUserName(data.username || String(data.userId))
           setUserRole(data.role || null)
         }
-      } catch {
-        // ignore
+      } finally {
+        setAuthChecked(true)
       }
     })()
   }, [])
 
   React.useEffect(() => {
+    if (!authChecked) return
+    if (!userId) {
+      router.replace('/')
+      return
+    }
+    if (userRole === 'Instructor') {
+      router.replace('/config')
+      return
+    }
+    if (userRole === 'Administrator') {
+      router.replace('/admin')
+    }
+  }, [authChecked, userId, userRole, router])
+
+  React.useEffect(() => {
     fetchHubData()
   }, [fetchHubData])
-
-  const login = async () => {
-    setError(null)
-    setAuthLoading(true)
-    try {
-      const resp = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: loginId, password }),
-      })
-      const text = await resp.text()
-      let data: any = null
-      try { data = text ? JSON.parse(text) : null } catch { data = { raw: text } }
-      if (!resp.ok) {
-        const detail = data?.error ?? data?.raw ?? `Status ${resp.status}`
-        throw new Error(String(detail))
-      }
-
-      if (data.requiresPasswordChange) {
-        window.location.href = '/reset-password'
-        return
-      }
-
-      setUserId(String(data.userId || loginId))
-      setUserName(data.username || loginId)
-      setUserRole(data.role || null)
-      setPassword('')
-      setView('hub')
-      clear()
-    } catch (err: any) {
-      setError(err.message || 'Login failed')
-    } finally {
-      setAuthLoading(false)
-    }
-  }
 
   const stopMic = React.useCallback(() => {
     if (micProcessorRef.current) {
@@ -250,8 +229,6 @@ export default function Page() {
       setUserId(null)
       setUserName(null)
       setUserRole(null)
-      setLoginId('')
-      setPassword('')
       setView('hub')
       setActiveSimulationCode('')
       setActiveSimulationTitle('')
@@ -545,7 +522,7 @@ export default function Page() {
         <div className="h-9 w-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-semibold">{initials}</div>
       </div>
       <div className={`${isUserMenuOpen ? 'block' : 'hidden'} absolute right-0 mt-2 w-52 rounded-md bg-white border border-gray-200 shadow-lg p-3 text-sm z-10`}>
-        <div className="text-gray-600 font-medium break-all">{userName || loginId || userId}</div>
+        <div className="text-gray-600 font-medium break-all">{userName || userId}</div>
         <div className="text-gray-500 text-xs">{userRole?.toUpperCase()}</div>
         <button
           className="mt-2 w-full px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
@@ -557,67 +534,12 @@ export default function Page() {
     </div>
   )
 
-  if (!userId) {
+  if (!authChecked || !userId || (userRole && userRole !== 'Student')) {
     return (
       <div className="min-h-screen bg-gray-50 p-6 flex items-center justify-center">
         <div className="max-w-xl w-full bg-white rounded-xl shadow-md border border-gray-100 p-6">
-          <h1 className="text-2xl font-semibold mb-4 text-gray-900">Student Login</h1>
-          {error && <div className="text-red-600 mb-3">{error}</div>}
-          <div className="space-y-3">
-            <div>
-              <label className="block text-sm font-medium mb-1">Login ID</label>
-              <input
-                value={loginId}
-                onChange={(e) => setLoginId(e.target.value)}
-                className="w-full p-2 border rounded-md"
-                placeholder="e.g., student123"
-                autoComplete="username"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Password</label>
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full p-2 border rounded-md"
-                placeholder="Enter password"
-                type="password"
-                autoComplete="current-password"
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); login() } }}
-              />
-            </div>
-            <button
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-md disabled:opacity-50"
-              onClick={login}
-              disabled={authLoading || !loginId.trim() || !password}
-            >
-              {authLoading ? 'Logging in...' : 'Log In'}
-            </button>
-            <div className="text-center">
-              <Link href="/forgot-password" className="text-sm text-blue-600 hover:text-blue-700">
-                Forgot Password?
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  if (userRole && userRole !== 'Student') {
-    return (
-      <div className="min-h-screen bg-gray-50 p-6">
-        <div className="max-w-2xl mx-auto bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-          <h1 className="text-2xl font-semibold text-gray-900 mb-2">Student Learning Hub</h1>
-          <p className="text-gray-600">This dashboard is only available for student accounts.</p>
-          <div className="mt-4 flex items-center gap-3">
-            <Link href="/config" className="px-4 py-2 rounded-md bg-blue-600 text-white text-sm hover:bg-blue-700">
-              Go to Instructor Config
-            </Link>
-            <button className="px-4 py-2 rounded-md bg-gray-200 text-gray-800 text-sm hover:bg-gray-300" onClick={logout}>
-              Log Out
-            </button>
-          </div>
+          <h1 className="text-2xl font-semibold mb-2 text-gray-900">Redirecting...</h1>
+          <p className="text-sm text-gray-600">Taking you to the main login page.</p>
         </div>
       </div>
     )

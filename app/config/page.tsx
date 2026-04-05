@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import create from 'zustand'
 import CohortManager from '../../components/CohortManager'
 import NeedsReviewDashboard from '../../components/NeedsReviewDashboard'
@@ -18,15 +19,14 @@ const useStore = create<Store>((set) => ({
 }))
 
 export default function Page() {
+  const router = useRouter()
   const systemPrompt = useStore((s) => s.systemPrompt)
   const setSystemPrompt = useStore((s) => s.setSystemPrompt)
 
   const [userId, setUserId] = useState<string | null>(null)
   const [userName, setUserName] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<'Administrator' | 'Instructor' | 'Student' | null>(null)
-  const [loginId, setLoginId] = useState('')
-  const [password, setPassword] = useState('')
-  const [authLoading, setAuthLoading] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [simulationCode, setSimulationCode] = useState<string | null>(null)
@@ -77,62 +77,29 @@ export default function Page() {
     ;(async () => {
       try {
         const resp = await fetch('/api/auth/me')
-        if (!resp.ok) {
-          setError('Not authenticated')
-          return
-        }
+        if (!resp.ok) return
         const data = await resp.json()
-        if (!data?.userId) {
-          setError('Not authenticated')
-          return
-        }
-        if (data.role === 'Student') {
-          setError('Access denied. Instructor or Administrator role required.')
-          return
-        }
+        if (!data?.userId) return
         setUserId(String(data.userId))
         setUserName(data.username || String(data.userId))
         setUserRole(data.role || null)
-      } catch {
-        setError('Not authenticated')
+      } finally {
+        setAuthChecked(true)
       }
     })()
   }, [])
 
-  const login = async () => {
-    setError(null)
-    setAuthLoading(true)
-    try {
-      const resp = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: loginId, password }),
-      })
-      const text = await resp.text()
-      let data: any = null
-      try { data = text ? JSON.parse(text) : null } catch { data = { raw: text } }
-      if (!resp.ok) {
-        const detail = data?.error ?? data?.raw ?? `Status ${resp.status}`
-        throw new Error(String(detail))
-      }
-      
-      // Check if user needs to reset password
-      if (data.requiresPasswordChange) {
-        // Redirect to password reset page
-        window.location.href = '/reset-password'
-        return
-      }
-
-      setUserId(String(data.userId || loginId))
-      setUserName(data.username || loginId)
-      setUserRole(data.role || null)
-      setPassword('')
-    } catch (err: any) {
-      setError(err.message || 'Login failed')
-    } finally {
-      setAuthLoading(false)
+  useEffect(() => {
+    if (!authChecked) return
+    if (!userId) {
+      router.replace('/')
+      return
     }
-  }
+    if (userRole === 'Student') {
+      router.replace('/sim')
+      return
+    }
+  }, [authChecked, userId, userRole, router])
 
   const logout = async () => {
     setError(null)
@@ -142,8 +109,6 @@ export default function Page() {
       setUserId(null)
       setUserName(null)
       setUserRole(null)
-      setLoginId('')
-      setPassword('')
     }
   }
 
@@ -203,7 +168,7 @@ export default function Page() {
         <div className="h-9 w-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-semibold">{initials}</div>
       </div>
       <div className={`${isUserMenuOpen ? 'block' : 'hidden'} absolute right-0 mt-2 w-52 rounded-md bg-white border border-gray-200 shadow-lg p-3 text-sm z-10`}>
-        <div className="text-gray-600 font-medium break-all">{userName || loginId || userId}</div>
+        <div className="text-gray-600 font-medium break-all">{userName || userId}</div>
         <div className="text-gray-500 text-xs">{userRole?.toUpperCase()}</div>
         <button
           className="mt-2 w-full px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
@@ -215,47 +180,12 @@ export default function Page() {
     </div>
   )
 
-  if (!userId || userRole === 'Student') {
+  if (!authChecked || !userId || userRole === 'Student') {
     return (
       <div className="h-screen bg-gray-50 flex items-center justify-center">
         <div className="max-w-md w-full bg-white rounded-lg shadow-md p-8">
-          <h1 className="text-3xl font-bold text-center text-gray-900 mb-6">Instructor Login</h1>
-          {error && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-md mb-6" role="alert">
-              <span className="block sm:inline">{error}</span>
-            </div>
-          )}
-          <div className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Login ID</label>
-              <input
-                value={loginId}
-                onChange={(e) => setLoginId(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="e.g., instructor"
-                autoComplete="username"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Enter password"
-                type="password"
-                autoComplete="current-password"
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); login() } }}
-              />
-            </div>
-            <button
-              className="w-full px-4 py-2 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700 disabled:opacity-50 transition-colors"
-              onClick={login}
-              disabled={authLoading || !loginId.trim() || !password}
-            >
-              {authLoading ? 'Logging in...' : 'Log In'}
-            </button>
-          </div>
+          <h1 className="text-2xl font-semibold text-center text-gray-900 mb-2">Redirecting...</h1>
+          <p className="text-sm text-gray-600 text-center">Taking you to the main login page.</p>
         </div>
       </div>
     );
