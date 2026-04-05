@@ -29,6 +29,7 @@ type NeedsReviewRow = {
   isFlagged: boolean
   evaluationStatus: EvaluationStatus
   evaluationData?: EvaluationRow[]
+  rubric?: Array<{ id: string; name: string; successCondition: string }>
 }
 
 type NeedsReviewResponse = {
@@ -42,13 +43,6 @@ type TranscriptMessage = {
   content: string
   timestamp?: string
 }
-
-const DEFAULT_RUBRIC: Array<{ criteriaId: string; description: string }> = [
-  { criteriaId: 'therapeutic_communication', description: 'Uses therapeutic communication techniques and empathy.' },
-  { criteriaId: 'assessment_depth', description: 'Performs focused assessment with relevant follow-up questions.' },
-  { criteriaId: 'patient_safety', description: 'Maintains patient safety and avoids unsafe guidance.' },
-  { criteriaId: 'professional_clarity', description: 'Communication is professional, clear, and structured.' },
-]
 
 const formatDate = (iso: string) => {
   const date = new Date(iso)
@@ -156,11 +150,24 @@ export default function NeedsReviewDashboard() {
 
   const runAIEval = async (row: NeedsReviewRow) => {
     try {
+      const rubric = Array.isArray(row.rubric)
+        ? row.rubric
+            .map((item) => ({
+              criteriaId: item.id || item.name,
+              description: `${item.name}: ${item.successCondition}`,
+            }))
+            .filter((item) => item.criteriaId && item.description)
+        : []
+
+      if (!rubric.length) {
+        throw new Error('No rubric configured for this simulation. Add Evaluation Criteria in /config first.')
+      }
+
       setBusySessionId(row.sessionId)
       const resp = await fetch('/api/instructor/evaluate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: row.sessionId, rubric: DEFAULT_RUBRIC }),
+        body: JSON.stringify({ sessionId: row.sessionId, rubric }),
       })
       const data = await resp.json().catch(() => null)
       if (!resp.ok) throw new Error(data?.error || 'Failed to run AI evaluation')

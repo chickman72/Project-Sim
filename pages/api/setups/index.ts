@@ -5,6 +5,11 @@ import { logAdminAction } from '../../../lib/audit-log'
 import { getCohortById } from '../../../lib/cohort'
 
 type SimulationVisibility = 'global' | 'cohort' | 'private'
+type RubricCriterion = {
+  id: string
+  name: string
+  successCondition: string
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = req.cookies?.[getSessionCookieName()]
@@ -29,7 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'POST') {
       // Create or update a setup
-      const { code, title, description, prompt, assignedCohortId, visibility } = req.body
+      const { code, title, description, prompt, assignedCohortId, visibility, rubric } = req.body
       if (!code || !prompt) {
         return res.status(400).json({ error: 'code and prompt are required' })
       }
@@ -67,6 +72,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         normalizedAssignedCohortId = undefined
       }
 
+      let normalizedRubric: RubricCriterion[] = []
+      if (Array.isArray(rubric)) {
+        normalizedRubric = rubric
+          .map((item: any) => ({
+            id: String(item?.id || '').trim(),
+            name: String(item?.name || '').trim(),
+            successCondition: String(item?.successCondition || '').trim(),
+          }))
+          .filter((item) => item.id && item.name && item.successCondition)
+      }
+
       const container = await getSetupsContainer()
       
       // Check if setup already exists to determine action type
@@ -86,6 +102,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         prompt,
         visibility: normalizedVisibility,
         assignedCohortId: normalizedAssignedCohortId,
+        rubric: normalizedRubric,
         userId: session.userId,
         updatedAt: new Date().toISOString()
       }

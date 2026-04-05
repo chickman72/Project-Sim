@@ -21,6 +21,7 @@ export type NeedsReviewRow = {
   isFlagged: boolean
   evaluationStatus: EvaluationStatus
   evaluationData?: EvaluationCriterion[]
+  rubric?: Array<{ id: string; name: string; successCondition: string }>
 }
 
 export type NeedsReviewFilters = {
@@ -38,6 +39,7 @@ type SetupRecord = {
   code: string
   title?: string
   assignedCohortId?: string
+  rubric?: Array<{ id: string; name: string; successCondition: string }>
 }
 
 type SessionStateRecord = {
@@ -77,7 +79,7 @@ export const getNeedsReviewDataForInstructor = async (
 
   const setupsContainer = await getSetupsContainer()
   const { resources: setupResources } = await setupsContainer.items
-    .query<SetupRecord>('SELECT c.code, c.title, c.assignedCohortId FROM c WHERE IS_DEFINED(c.assignedCohortId)')
+    .query<SetupRecord>('SELECT c.code, c.title, c.assignedCohortId, c.rubric FROM c WHERE IS_DEFINED(c.assignedCohortId)')
     .fetchAll()
 
   const cohortSimulationMap = new Map<string, SetupRecord[]>()
@@ -183,6 +185,7 @@ export const getNeedsReviewDataForInstructor = async (
         isFlagged: flagType !== 'none',
         evaluationStatus: row.evaluationStatus || 'none',
         evaluationData: row.evaluationData || [],
+        rubric: setup?.rubric || [],
       }
     })
     .filter((row) => !!row.cohortId)

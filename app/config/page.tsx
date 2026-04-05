@@ -7,6 +7,20 @@ import CohortManager from '../../components/CohortManager'
 import NeedsReviewDashboard from '../../components/NeedsReviewDashboard'
 
 type SimulationVisibility = 'global' | 'cohort' | 'private'
+type RubricCriterion = {
+  id: string
+  name: string
+  successCondition: string
+}
+type Simulation = {
+  code: string
+  prompt: string
+  title: string
+  description: string
+  assignedCohortId?: string
+  visibility?: SimulationVisibility
+  rubric?: RubricCriterion[]
+}
 
 type Store = {
   systemPrompt: string
@@ -33,7 +47,8 @@ export default function Page() {
   const [isDirty, setIsDirty] = useState(false)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [setups, setSetups] = useState<{ code: string; prompt: string; title: string; description: string; assignedCohortId?: string; visibility?: SimulationVisibility }[]>([])
+  const [setups, setSetups] = useState<Simulation[]>([])
+  const [rubric, setRubric] = useState<RubricCriterion[]>([])
   const [cohorts, setCohorts] = useState<{ id: string; name: string }[]>([])
   const [selectedVisibility, setSelectedVisibility] = useState<SimulationVisibility>('global')
   const [selectedCohortId, setSelectedCohortId] = useState<string | undefined>(undefined)
@@ -56,7 +71,8 @@ export default function Page() {
             title: s.title || '', 
             description: s.description || '',
             assignedCohortId: s.assignedCohortId,
-            visibility: s.visibility || (s.assignedCohortId ? 'cohort' : 'global')
+            visibility: s.visibility || (s.assignedCohortId ? 'cohort' : 'global'),
+            rubric: Array.isArray(s.rubric) ? s.rubric : []
           }))
           setSetups(setupsWithTitles)
         }
@@ -114,7 +130,7 @@ export default function Page() {
 
   const saveSetup = async () => {
     const codeToUse = simulationCode || Math.random().toString(36).substring(2, 8).toUpperCase()
-    const setupData: any = { code: codeToUse, title, description, prompt: systemPrompt, visibility: selectedVisibility }
+    const setupData: any = { code: codeToUse, title, description, prompt: systemPrompt, visibility: selectedVisibility, rubric }
     
     // Add assignedCohortId only for cohort visibility.
     if (selectedVisibility === 'cohort' && selectedCohortId) {
@@ -310,6 +326,73 @@ export default function Page() {
                 className="w-full h-64 p-4 border rounded-md resize-y focus:ring-2 focus:ring-blue-500"
                 placeholder="e.g., You are a customer service representative for a clothing store..."
               />
+              <div className="mt-6 border border-gray-200 rounded-md p-4 bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Evaluation Criteria</h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const id = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+                        ? crypto.randomUUID()
+                        : Math.random().toString(36).slice(2)
+                      setRubric([...rubric, { id, name: '', successCondition: '' }])
+                      setIsDirty(true)
+                    }}
+                    className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700"
+                  >
+                    Add Criterion
+                  </button>
+                </div>
+                {rubric.length === 0 ? (
+                  <p className="text-sm text-gray-500">No criteria added yet.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {rubric.map((criterion, index) => (
+                      <div key={criterion.id} className="rounded-md border border-gray-200 bg-white p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold text-gray-600">Criterion {index + 1}</p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRubric(rubric.filter((r) => r.id !== criterion.id))
+                              setIsDirty(true)
+                            }}
+                            className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <div className="space-y-2">
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Criteria Name</label>
+                            <input
+                              value={criterion.name}
+                              onChange={(e) => {
+                                setRubric(rubric.map((r) => r.id === criterion.id ? { ...r, name: e.target.value } : r))
+                                setIsDirty(true)
+                              }}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder="e.g., Hand Hygiene"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-700 mb-1">Success Condition</label>
+                            <textarea
+                              value={criterion.successCondition}
+                              onChange={(e) => {
+                                setRubric(rubric.map((r) => r.id === criterion.id ? { ...r, successCondition: e.target.value } : r))
+                                setIsDirty(true)
+                              }}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-y min-h-16 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              placeholder="e.g., Student must wash hands before patient contact."
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               {isDirty && (
                 <div className="mt-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4" role="alert">
                   <p className="font-bold">Warning</p>
@@ -328,6 +411,7 @@ export default function Page() {
                   setSystemPrompt('')
                   setTitle('')
                   setDescription('')
+                  setRubric([])
                   setSelectedVisibility('global')
                   setSelectedCohortId(undefined)
                   setSimulationCode(null)
@@ -389,6 +473,7 @@ export default function Page() {
                             const visibility = setup.visibility || (setup.assignedCohortId ? 'cohort' : 'global')
                             setSelectedVisibility(visibility)
                             setSelectedCohortId(visibility === 'cohort' ? setup.assignedCohortId : undefined)
+                            setRubric(Array.isArray(setup.rubric) ? setup.rubric : [])
                             setSimulationCode(setup.code)
                             setIsDirty(false)
                           }}

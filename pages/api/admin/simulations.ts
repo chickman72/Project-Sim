@@ -13,6 +13,7 @@ interface Simulation {
   updatedAt: string
   username?: string
   assignedCohortId?: string
+  rubric?: Array<{ id: string; name: string; successCondition: string }>
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -36,7 +37,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       // Get all setups
       const querySpec = {
-        query: 'SELECT c.id, c.code, c.title, c.description, c.prompt, c.userId, c.updatedAt, c.assignedCohortId FROM c',
+        query: 'SELECT c.id, c.code, c.title, c.description, c.prompt, c.userId, c.updatedAt, c.assignedCohortId, c.rubric FROM c',
         parameters: []
       }
       const { resources: setups } = await setupsContainer.items.query(querySpec).fetchAll()

@@ -22,6 +22,7 @@ interface Simulation {
   username: string
   updatedAt: string
   assignedCohortId?: string
+  rubric?: Array<{ id: string; name: string; successCondition: string }>
 }
 
 export default function AdminPage() {
