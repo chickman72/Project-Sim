@@ -101,6 +101,7 @@ export default function Page() {
   const [activeSimulationTitle, setActiveSimulationTitle] = useState('')
   const [activeSimulationDescription, setActiveSimulationDescription] = useState('')
   const [activeSimulationIsPracticeMode, setActiveSimulationIsPracticeMode] = useState(false)
+  const [activeConversationStarters, setActiveConversationStarters] = useState<string[]>([])
   const [simulationStartedAt, setSimulationStartedAt] = useState<number | null>(null)
 
   const [input, setInput] = useState('')
@@ -132,6 +133,7 @@ export default function Page() {
   const micWorkletRef = useRef<AudioWorkletNode | null>(null)
   const micWorkletUrlRef = useRef<string | null>(null)
   const micGainRef = useRef<GainNode | null>(null)
+  const chatInputRef = useRef<HTMLInputElement | null>(null)
 
   const {
     connect,
@@ -253,6 +255,7 @@ export default function Page() {
       setActiveSimulationTitle('')
       setActiveSimulationDescription('')
       setActiveSimulationIsPracticeMode(false)
+      setActiveConversationStarters([])
       setSimulationStartedAt(null)
       setVoiceMode(false)
       setVoiceError(null)
@@ -308,6 +311,11 @@ export default function Page() {
       setActiveSimulationTitle(setup.title || assignment.title || 'Simulation')
       setActiveSimulationDescription(setup.description || assignment.description || '')
       setActiveSimulationIsPracticeMode(Boolean(assignment.isPracticeMode))
+      setActiveConversationStarters(
+        Array.isArray(setup.conversationStarters)
+          ? setup.conversationStarters.map((item: any) => String(item || '')).filter((item: string) => item.trim().length > 0)
+          : []
+      )
       setSimulationStartedAt(Date.now())
       setView('chat')
     } catch (err: any) {
@@ -346,6 +354,7 @@ export default function Page() {
       setActiveSimulationTitle('')
       setActiveSimulationDescription('')
       setActiveSimulationIsPracticeMode(false)
+      setActiveConversationStarters([])
       setSimulationStartedAt(null)
       await fetchHubData()
     } catch (err: any) {
@@ -361,9 +370,15 @@ export default function Page() {
     setVoiceMode(false)
     setView('hub')
     setActiveSimulationIsPracticeMode(false)
+    setActiveConversationStarters([])
     clear()
     setInput('')
     await fetchHubData()
+  }
+
+  const applyConversationStarter = (starter: string) => {
+    setInput(starter)
+    chatInputRef.current?.focus()
   }
 
   const send = async () => {
@@ -611,6 +626,24 @@ export default function Page() {
                   <p className="text-gray-500 font-mono">{activeSimulationCode}</p>
                 </div>
                 {activeSimulationDescription && <p className="text-gray-600 pt-2 whitespace-pre-wrap">{activeSimulationDescription}</p>}
+                {activeConversationStarters.length > 0 && (
+                  <div className="pt-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Suggested Starters</p>
+                    <div className="flex flex-wrap gap-2">
+                      {activeConversationStarters.map((starter, idx) => (
+                        <button
+                          key={`starter-${idx}`}
+                          type="button"
+                          onClick={() => applyConversationStarter(starter)}
+                          className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs text-blue-700 hover:bg-blue-100 text-left"
+                          title={starter}
+                        >
+                          {starter}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -649,6 +682,7 @@ export default function Page() {
               {voiceError && <div className="text-red-600 mb-2 text-sm">{voiceError}</div>}
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
+                  ref={chatInputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   className="flex-1 p-2 border rounded-md"

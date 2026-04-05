@@ -20,6 +20,7 @@ type Simulation = {
   assignedCohortId?: string
   visibility?: SimulationVisibility
   isPracticeMode?: boolean
+  conversationStarters?: string[]
   rubric?: RubricCriterion[]
 }
 
@@ -50,6 +51,7 @@ export default function Page() {
   const [description, setDescription] = useState('')
   const [setups, setSetups] = useState<Simulation[]>([])
   const [rubric, setRubric] = useState<RubricCriterion[]>([])
+  const [conversationStarters, setConversationStarters] = useState<string[]>([])
   const [isPracticeMode, setIsPracticeMode] = useState(false)
   const [cohorts, setCohorts] = useState<{ id: string; name: string }[]>([])
   const [selectedVisibility, setSelectedVisibility] = useState<SimulationVisibility>('global')
@@ -75,6 +77,9 @@ export default function Page() {
             assignedCohortId: s.assignedCohortId,
             visibility: s.visibility || (s.assignedCohortId ? 'cohort' : 'global'),
             isPracticeMode: Boolean(s.isPracticeMode),
+            conversationStarters: Array.isArray(s.conversationStarters)
+              ? s.conversationStarters.map((v: any) => String(v || ''))
+              : [],
             rubric: Array.isArray(s.rubric) ? s.rubric : []
           }))
           setSetups(setupsWithTitles)
@@ -140,6 +145,7 @@ export default function Page() {
       prompt: systemPrompt,
       visibility: selectedVisibility,
       isPracticeMode,
+      conversationStarters,
       rubric,
     }
     
@@ -357,6 +363,52 @@ export default function Page() {
               />
               <div className="mt-6 border border-gray-200 rounded-md p-4 bg-gray-50">
                 <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-900">Conversation Starters</h3>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setConversationStarters([...conversationStarters, ''])
+                      setIsDirty(true)
+                    }}
+                    className="px-3 py-1.5 bg-sky-600 text-white text-xs rounded-md hover:bg-sky-700"
+                  >
+                    Add Conversation Starter
+                  </button>
+                </div>
+                {conversationStarters.length === 0 ? (
+                  <p className="text-sm text-gray-500">No starters added yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {conversationStarters.map((starter, index) => (
+                      <div key={`starter-${index}`} className="flex items-center gap-2">
+                        <input
+                          value={starter}
+                          onChange={(e) => {
+                            const next = [...conversationStarters]
+                            next[index] = e.target.value
+                            setConversationStarters(next)
+                            setIsDirty(true)
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="e.g., Hello, my name is [Your Name], and I will be your nurse today."
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConversationStarters(conversationStarters.filter((_, i) => i !== index))
+                            setIsDirty(true)
+                          }}
+                          className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="mt-6 border border-gray-200 rounded-md p-4 bg-gray-50">
+                <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-semibold text-gray-900">Evaluation Criteria</h3>
                   <button
                     type="button"
@@ -441,6 +493,7 @@ export default function Page() {
                   setTitle('')
                   setDescription('')
                   setRubric([])
+                  setConversationStarters([])
                   setSelectedVisibility('global')
                   setSelectedCohortId(undefined)
                   setIsPracticeMode(false)
@@ -507,6 +560,7 @@ export default function Page() {
                             setSelectedVisibility(visibility)
                             setSelectedCohortId(visibility === 'cohort' ? setup.assignedCohortId : undefined)
                             setIsPracticeMode(Boolean(setup.isPracticeMode))
+                            setConversationStarters(Array.isArray(setup.conversationStarters) ? setup.conversationStarters : [])
                             setRubric(Array.isArray(setup.rubric) ? setup.rubric : [])
                             setSimulationCode(setup.code)
                             setIsDirty(false)

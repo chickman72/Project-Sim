@@ -53,7 +53,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           code: resource.code,
           title: resource.title,
           description: resource.description,
-          prompt: resource.prompt
+          prompt: resource.prompt,
+          conversationStarters: Array.isArray(resource.conversationStarters)
+            ? resource.conversationStarters.map((item: any) => String(item || '')).filter((item: string) => item.trim().length > 0)
+            : [],
         })
       } catch (error: any) {
         if (error.code === 404) return res.status(404).json({ error: 'Setup not found' })
