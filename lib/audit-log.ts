@@ -10,6 +10,13 @@ export type AuditEventType =
   | 'session_state'
 
 export type CompletionStatus = 'in-progress' | 'completed' | 'abandoned' | 'timeout'
+export type EvaluationStatus = 'none' | 'pending_approval' | 'published'
+export type EvaluationCriterion = {
+  criteriaId: string
+  status: 'Met' | 'Not Met'
+  aiFeedback: string
+  instructorOverride?: string
+}
 
 export type SimMessage = {
   id: string
@@ -31,6 +38,8 @@ export type SimSession = {
   scenarioId?: string
   promptVersion?: string
   completionStatus?: CompletionStatus
+  evaluationStatus?: EvaluationStatus
+  evaluationData?: EvaluationCriterion[]
   sessionDurationSeconds?: number
   sessionTags?: string[]
 }
@@ -58,6 +67,8 @@ export type AuditRecord = {
   promptVersion?: string
   latencyMs?: number
   completionStatus?: CompletionStatus
+  evaluationStatus?: EvaluationStatus
+  evaluationData?: EvaluationCriterion[]
   sessionDurationSeconds?: number
   sessionTags?: string[]
   messagesJson?: string

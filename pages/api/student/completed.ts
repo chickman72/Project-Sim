@@ -7,6 +7,7 @@ type CompletedRow = {
   scenarioId?: string
   timestamp?: string
   sessionDurationSeconds?: number
+  evaluationStatus?: 'none' | 'pending_approval' | 'published'
 }
 
 type CompletedScenario = {
@@ -15,6 +16,7 @@ type CompletedScenario = {
   scenarioName: string
   completedAt: string
   durationSeconds?: number
+  evaluationStatus: 'none' | 'pending_approval' | 'published'
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -32,7 +34,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const logsContainer = await getLogsContainer()
     const { resources } = await logsContainer.items.query<CompletedRow>({
       query:
-        'SELECT c.sessionId, c.scenarioId, c.timestamp, c.sessionDurationSeconds FROM c WHERE c.userId = @userId AND c.eventType = @eventType AND c.completionStatus = @status ORDER BY c.timestamp DESC',
+        'SELECT c.sessionId, c.scenarioId, c.timestamp, c.sessionDurationSeconds, c.evaluationStatus FROM c WHERE c.userId = @userId AND c.eventType = @eventType AND c.completionStatus = @status ORDER BY c.timestamp DESC',
       parameters: [
         { name: '@userId', value: session.userId },
         { name: '@eventType', value: 'session_state' },
@@ -71,6 +73,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         scenarioName,
         completedAt: row.timestamp || new Date().toISOString(),
         durationSeconds: typeof row.sessionDurationSeconds === 'number' ? row.sessionDurationSeconds : undefined,
+        evaluationStatus: row.evaluationStatus || 'none',
       }
     })
 

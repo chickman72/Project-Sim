@@ -1,6 +1,7 @@
 import { getCohortsByInstructor } from './cohort'
 import { getLogsContainer, getSetupsContainer } from './cosmos'
 import { getUserById } from './user'
+import type { EvaluationCriterion, EvaluationStatus } from './audit-log'
 
 export type NeedsReviewStatus = 'in-progress' | 'completed' | 'abandoned' | 'timeout'
 
@@ -18,6 +19,8 @@ export type NeedsReviewRow = {
   cohortName: string
   flagType: 'none' | 'abandoned_or_timeout' | 'low_duration'
   isFlagged: boolean
+  evaluationStatus: EvaluationStatus
+  evaluationData?: EvaluationCriterion[]
 }
 
 export type NeedsReviewFilters = {
@@ -43,6 +46,8 @@ type SessionStateRecord = {
   scenarioId?: string
   completionStatus?: NeedsReviewStatus
   sessionDurationSeconds?: number
+  evaluationStatus?: EvaluationStatus
+  evaluationData?: EvaluationCriterion[]
   timestamp?: string
 }
 
@@ -108,7 +113,7 @@ export const getNeedsReviewDataForInstructor = async (
   const logsContainer = await getLogsContainer()
   const { resources: sessionRows } = await logsContainer.items.query<SessionStateRecord>({
     query:
-      'SELECT c.sessionId, c.userId, c.scenarioId, c.completionStatus, c.sessionDurationSeconds, c.timestamp FROM c WHERE c.eventType = @eventType AND ARRAY_CONTAINS(@studentIds, c.userId) AND ARRAY_CONTAINS(@scenarioIds, c.scenarioId)',
+      'SELECT c.sessionId, c.userId, c.scenarioId, c.completionStatus, c.sessionDurationSeconds, c.evaluationStatus, c.evaluationData, c.timestamp FROM c WHERE c.eventType = @eventType AND ARRAY_CONTAINS(@studentIds, c.userId) AND ARRAY_CONTAINS(@scenarioIds, c.scenarioId)',
     parameters: [
       { name: '@eventType', value: 'session_state' },
       { name: '@studentIds', value: studentIds },
@@ -176,6 +181,8 @@ export const getNeedsReviewDataForInstructor = async (
         cohortName: cohort?.name || 'Unknown Cohort',
         flagType,
         isFlagged: flagType !== 'none',
+        evaluationStatus: row.evaluationStatus || 'none',
+        evaluationData: row.evaluationData || [],
       }
     })
     .filter((row) => !!row.cohortId)

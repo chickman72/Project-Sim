@@ -40,6 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       method: req.method || null,
       scenarioId,
       completionStatus: 'in-progress',
+      evaluationStatus: 'none',
       sessionDurationSeconds: 0,
     })
 

@@ -26,12 +26,20 @@ type CompletedScenario = {
   scenarioName: string
   completedAt: string
   durationSeconds?: number
+  evaluationStatus: 'none' | 'pending_approval' | 'published'
 }
 
 type TranscriptMessage = {
   role: 'student' | 'assistant'
   content: string
   timestamp?: string
+}
+
+type EvaluationCriterion = {
+  criteriaId: string
+  status: 'Met' | 'Not Met'
+  aiFeedback: string
+  instructorOverride?: string
 }
 
 type Store = {
@@ -105,6 +113,11 @@ export default function Page() {
   const [transcriptMessages, setTranscriptMessages] = useState<TranscriptMessage[]>([])
   const [transcriptLoading, setTranscriptLoading] = useState(false)
   const [transcriptError, setTranscriptError] = useState<string | null>(null)
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [feedbackTitle, setFeedbackTitle] = useState('')
+  const [feedbackRows, setFeedbackRows] = useState<EvaluationCriterion[]>([])
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const [feedbackError, setFeedbackError] = useState<string | null>(null)
 
   const micStreamRef = useRef<MediaStream | null>(null)
   const micContextRef = useRef<AudioContext | null>(null)
@@ -510,6 +523,30 @@ export default function Page() {
     }
   }
 
+  const openFeedback = async (session: CompletedScenario) => {
+    setFeedbackOpen(true)
+    setFeedbackTitle(session.scenarioName)
+    setFeedbackRows([])
+    setFeedbackError(null)
+    setFeedbackLoading(true)
+
+    try {
+      const resp = await fetch(`/api/student/evaluation/${encodeURIComponent(session.sessionId)}`)
+      const text = await resp.text()
+      let data: any = null
+      try { data = text ? JSON.parse(text) : null } catch { data = { raw: text } }
+      if (!resp.ok) {
+        const detail = data?.error ?? data?.raw ?? 'Failed to load published feedback'
+        throw new Error(String(detail))
+      }
+      setFeedbackRows(Array.isArray(data?.evaluationData) ? data.evaluationData : [])
+    } catch (err: any) {
+      setFeedbackError(err?.message || 'Failed to load published feedback')
+    } finally {
+      setFeedbackLoading(false)
+    }
+  }
+
   const initials = userName ? userName.charAt(0).toUpperCase() : userId ? userId.charAt(0).toUpperCase() : ''
 
   const UserBadge = () => (
@@ -718,6 +755,7 @@ export default function Page() {
                           <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Scenario</th>
                           <th className="text-left px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Duration</th>
                           <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Transcript</th>
+                          <th className="text-right px-4 py-3 text-xs font-semibold text-gray-600 uppercase tracking-wide">Feedback</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200 bg-white">
@@ -733,6 +771,18 @@ export default function Page() {
                               >
                                 Review Transcript
                               </button>
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {session.evaluationStatus === 'published' ? (
+                                <button
+                                  onClick={() => openFeedback(session)}
+                                  className="px-3 py-1.5 bg-emerald-600 text-white rounded-md text-sm hover:bg-emerald-700"
+                                >
+                                  View Instructor Feedback
+                                </button>
+                              ) : (
+                                <span className="text-xs text-gray-500">Not published</span>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -754,6 +804,37 @@ export default function Page() {
         messages={transcriptMessages}
         onClose={() => setTranscriptOpen(false)}
       />
+
+      {feedbackOpen && (
+        <div className="fixed inset-0 z-50">
+          <button className="absolute inset-0 bg-black/35" onClick={() => setFeedbackOpen(false)} aria-label="Close feedback" />
+          <div className="absolute right-0 top-0 h-full w-full max-w-2xl bg-white border-l border-gray-200 shadow-xl flex flex-col">
+            <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">Instructor Feedback</h3>
+                <p className="text-sm text-gray-600 truncate">{feedbackTitle}</p>
+              </div>
+              <button onClick={() => setFeedbackOpen(false)} className="px-3 py-1.5 rounded-md border border-gray-300 text-sm hover:bg-gray-50">
+                Close
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 bg-gray-50 space-y-3">
+              {feedbackLoading && <p className="text-sm text-gray-600">Loading feedback...</p>}
+              {!feedbackLoading && feedbackError && <p className="text-sm text-red-600">{feedbackError}</p>}
+              {!feedbackLoading && !feedbackError && feedbackRows.length === 0 && <p className="text-sm text-gray-600">No published feedback found.</p>}
+              {!feedbackLoading && !feedbackError && feedbackRows.map((row, idx) => (
+                <div key={`${row.criteriaId}-${idx}`} className="rounded-lg border border-gray-200 bg-white p-3">
+                  <div className="text-sm font-semibold text-gray-900">{row.criteriaId}</div>
+                  <div className={`mt-1 inline-flex px-2 py-1 rounded-full text-xs font-semibold ${row.status === 'Met' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
+                    {row.status}
+                  </div>
+                  <p className="mt-2 text-sm text-gray-700 whitespace-pre-wrap">{row.instructorOverride || row.aiFeedback}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -203,6 +203,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         scenarioId: typeof scenarioId === 'string' ? scenarioId : undefined,
         promptVersion: typeof promptVersion === 'string' ? promptVersion : undefined,
         completionStatus: isCompletionStatus(completionStatus) ? completionStatus : undefined,
+        evaluationStatus: 'none',
         sessionDurationSeconds: typeof sessionDurationSeconds === 'number' ? sessionDurationSeconds : undefined,
         sessionTags: Array.isArray(sessionTags) ? sessionTags : undefined,
       })

@@ -1,9 +1,18 @@
-﻿'use client'
+'use client'
 
 import React, { useMemo, useState } from 'react'
 import TranscriptViewer from './TranscriptViewer'
+import EvaluationApprovalModal from './EvaluationApprovalModal'
 
 type NeedsReviewStatus = 'in-progress' | 'completed' | 'abandoned' | 'timeout'
+type EvaluationStatus = 'none' | 'pending_approval' | 'published'
+
+type EvaluationRow = {
+  criteriaId: string
+  status: 'Met' | 'Not Met'
+  aiFeedback: string
+  instructorOverride?: string
+}
 
 type NeedsReviewRow = {
   sessionId: string
@@ -18,6 +27,8 @@ type NeedsReviewRow = {
   cohortName: string
   flagType: 'none' | 'abandoned_or_timeout' | 'low_duration'
   isFlagged: boolean
+  evaluationStatus: EvaluationStatus
+  evaluationData?: EvaluationRow[]
 }
 
 type NeedsReviewResponse = {
@@ -31,6 +42,13 @@ type TranscriptMessage = {
   content: string
   timestamp?: string
 }
+
+const DEFAULT_RUBRIC: Array<{ criteriaId: string; description: string }> = [
+  { criteriaId: 'therapeutic_communication', description: 'Uses therapeutic communication techniques and empathy.' },
+  { criteriaId: 'assessment_depth', description: 'Performs focused assessment with relevant follow-up questions.' },
+  { criteriaId: 'patient_safety', description: 'Maintains patient safety and avoids unsafe guidance.' },
+  { criteriaId: 'professional_clarity', description: 'Communication is professional, clear, and structured.' },
+]
 
 const formatDate = (iso: string) => {
   const date = new Date(iso)
@@ -65,12 +83,22 @@ export default function NeedsReviewDashboard() {
   const [simulations, setSimulations] = useState<Array<{ code: string; name: string }>>([])
   const [cohortFilter, setCohortFilter] = useState('')
   const [simulationFilter, setSimulationFilter] = useState('')
+  const [busySessionId, setBusySessionId] = useState<string | null>(null)
 
   const [transcriptOpen, setTranscriptOpen] = useState(false)
   const [transcriptTitle, setTranscriptTitle] = useState('')
   const [transcriptMessages, setTranscriptMessages] = useState<TranscriptMessage[]>([])
   const [transcriptLoading, setTranscriptLoading] = useState(false)
   const [transcriptError, setTranscriptError] = useState<string | null>(null)
+
+  const [evaluationOpen, setEvaluationOpen] = useState(false)
+  const [evaluationTitle, setEvaluationTitle] = useState('')
+  const [evaluationLoading, setEvaluationLoading] = useState(false)
+  const [evaluationSaving, setEvaluationSaving] = useState(false)
+  const [evaluationError, setEvaluationError] = useState<string | null>(null)
+  const [evaluationRows, setEvaluationRows] = useState<EvaluationRow[]>([])
+  const [evaluationTranscript, setEvaluationTranscript] = useState<TranscriptMessage[]>([])
+  const [activeEvalSessionId, setActiveEvalSessionId] = useState<string | null>(null)
 
   const loadData = React.useCallback(async (cohortId?: string, simulationCode?: string) => {
     try {
@@ -114,23 +142,84 @@ export default function NeedsReviewDashboard() {
     setTranscriptMessages([])
     setTranscriptError(null)
     setTranscriptLoading(true)
-
     try {
       const resp = await fetch(`/api/instructor/transcript/${encodeURIComponent(row.sessionId)}`)
-      const text = await resp.text()
-      let data: any = null
-      try { data = text ? JSON.parse(text) : null } catch { data = { raw: text } }
-
-      if (!resp.ok) {
-        const detail = data?.error ?? data?.raw ?? 'Failed to load transcript'
-        throw new Error(String(detail))
-      }
-
+      const data = await resp.json().catch(() => null)
+      if (!resp.ok) throw new Error(data?.error || 'Failed to load transcript')
       setTranscriptMessages(Array.isArray(data?.messages) ? data.messages : [])
     } catch (err: any) {
       setTranscriptError(err?.message || 'Failed to load transcript')
     } finally {
       setTranscriptLoading(false)
+    }
+  }
+
+  const runAIEval = async (row: NeedsReviewRow) => {
+    try {
+      setBusySessionId(row.sessionId)
+      const resp = await fetch('/api/instructor/evaluate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: row.sessionId, rubric: DEFAULT_RUBRIC }),
+      })
+      const data = await resp.json().catch(() => null)
+      if (!resp.ok) throw new Error(data?.error || 'Failed to run AI evaluation')
+      await loadData(cohortFilter || undefined, simulationFilter || undefined)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to run AI evaluation')
+    } finally {
+      setBusySessionId(null)
+    }
+  }
+
+  const openEvaluation = async (row: NeedsReviewRow) => {
+    setActiveEvalSessionId(row.sessionId)
+    setEvaluationTitle(`${row.simulationName} - ${row.studentName}`)
+    setEvaluationOpen(true)
+    setEvaluationLoading(true)
+    setEvaluationError(null)
+    setEvaluationRows([])
+    setEvaluationTranscript([])
+
+    try {
+      const [evalResp, transcriptResp] = await Promise.all([
+        fetch(`/api/instructor/evaluation/${encodeURIComponent(row.sessionId)}`),
+        fetch(`/api/instructor/transcript/${encodeURIComponent(row.sessionId)}`),
+      ])
+      const evalData = await evalResp.json().catch(() => null)
+      const transcriptData = await transcriptResp.json().catch(() => null)
+      if (!evalResp.ok) throw new Error(evalData?.error || 'Failed to load evaluation')
+      if (!transcriptResp.ok) throw new Error(transcriptData?.error || 'Failed to load transcript')
+
+      setEvaluationRows(Array.isArray(evalData?.evaluationData) ? evalData.evaluationData : [])
+      setEvaluationTranscript(Array.isArray(transcriptData?.messages) ? transcriptData.messages : [])
+    } catch (err: any) {
+      setEvaluationError(err?.message || 'Failed to load evaluation details')
+    } finally {
+      setEvaluationLoading(false)
+    }
+  }
+
+  const saveEvaluation = async (nextRows: EvaluationRow[], publish: boolean) => {
+    if (!activeEvalSessionId) return
+    try {
+      setEvaluationSaving(true)
+      const resp = await fetch(`/api/instructor/evaluation/${encodeURIComponent(activeEvalSessionId)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          evaluationStatus: publish ? 'published' : 'pending_approval',
+          evaluationData: nextRows,
+        }),
+      })
+      const data = await resp.json().catch(() => null)
+      if (!resp.ok) throw new Error(data?.error || 'Failed to save evaluation')
+      setEvaluationOpen(false)
+      await loadData(cohortFilter || undefined, simulationFilter || undefined)
+    } catch (err: any) {
+      setEvaluationError(err?.message || 'Failed to save evaluation')
+    } finally {
+      setEvaluationSaving(false)
     }
   }
 
@@ -149,36 +238,21 @@ export default function NeedsReviewDashboard() {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Filter by Cohort</label>
-          <select
-            value={cohortFilter}
-            onChange={(e) => setCohortFilter(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-          >
+          <select value={cohortFilter} onChange={(e) => setCohortFilter(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
             <option value="">All Cohorts</option>
-            {cohorts.map((cohort) => (
-              <option key={cohort.id} value={cohort.id}>{cohort.name}</option>
-            ))}
+            {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}
           </select>
         </div>
-
         <div>
           <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Filter by Simulation</label>
-          <select
-            value={simulationFilter}
-            onChange={(e) => setSimulationFilter(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm"
-          >
+          <select value={simulationFilter} onChange={(e) => setSimulationFilter(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
             <option value="">All Simulations</option>
-            {simulations.map((simulation) => (
-              <option key={simulation.code} value={simulation.code}>{simulation.name}</option>
-            ))}
+            {simulations.map((simulation) => <option key={simulation.code} value={simulation.code}>{simulation.name}</option>)}
           </select>
         </div>
       </div>
 
-      {error && (
-        <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-      )}
+      {error && <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
 
       <div className="overflow-x-auto border border-gray-200 rounded-lg bg-white">
         <table className="min-w-full text-sm">
@@ -191,36 +265,17 @@ export default function NeedsReviewDashboard() {
               <th className="px-3 py-3 text-left">Status</th>
               <th className="px-3 py-3 text-left">Duration</th>
               <th className="px-3 py-3 text-left">Score (Coming Soon)</th>
+              <th className="px-3 py-3 text-left">Actions</th>
               <th className="px-3 py-3 text-right">Transcript</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {loading && (
-              <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-gray-500">Loading sessions...</td>
-              </tr>
-            )}
-
-            {!loading && rows.length === 0 && (
-              <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-gray-500">No sessions found for current filters.</td>
-              </tr>
-            )}
+            {loading && <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-500">Loading sessions...</td></tr>}
+            {!loading && rows.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-500">No sessions found for current filters.</td></tr>}
 
             {!loading && rows.map((row) => {
-              const rowClass =
-                row.flagType === 'abandoned_or_timeout'
-                  ? 'bg-rose-50'
-                  : row.flagType === 'low_duration'
-                    ? 'bg-amber-50'
-                    : 'bg-white'
-
-              const flagLabel =
-                row.flagType === 'abandoned_or_timeout'
-                  ? '[!] Abandoned/Timeout'
-                  : row.flagType === 'low_duration'
-                    ? '[!] Very Short'
-                    : '-'
+              const rowClass = row.flagType === 'abandoned_or_timeout' ? 'bg-rose-50' : row.flagType === 'low_duration' ? 'bg-amber-50' : 'bg-white'
+              const flagLabel = row.flagType === 'abandoned_or_timeout' ? '[!] Abandoned/Timeout' : row.flagType === 'low_duration' ? '[!] Very Short' : '-'
 
               return (
                 <tr key={row.sessionId} className={rowClass}>
@@ -235,17 +290,39 @@ export default function NeedsReviewDashboard() {
                     <div className="text-xs text-gray-500">{row.cohortName}</div>
                   </td>
                   <td className="px-3 py-3">
-                    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${statusBadgeClass(row.status)}`}>
-                      {row.status}
-                    </span>
+                    <span className={`inline-flex px-2 py-1 rounded-full text-xs font-semibold ${statusBadgeClass(row.status)}`}>{row.status}</span>
                   </td>
                   <td className="px-3 py-3 text-gray-700">{formatDuration(row.durationSeconds)}</td>
                   <td className="px-3 py-3 text-gray-400">-</td>
+                  <td className="px-3 py-3">
+                    {row.evaluationStatus === 'none' && (
+                      <button
+                        onClick={() => runAIEval(row)}
+                        disabled={busySessionId === row.sessionId}
+                        className="px-3 py-1.5 rounded-md bg-violet-600 text-white text-xs font-medium hover:bg-violet-700 disabled:opacity-50"
+                      >
+                        {busySessionId === row.sessionId ? 'Running...' : 'Run AI Eval'}
+                      </button>
+                    )}
+                    {row.evaluationStatus === 'pending_approval' && (
+                      <button
+                        onClick={() => openEvaluation(row)}
+                        className="px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs font-medium hover:bg-amber-700"
+                      >
+                        Review & Publish
+                      </button>
+                    )}
+                    {row.evaluationStatus === 'published' && (
+                      <button
+                        onClick={() => openEvaluation(row)}
+                        className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700"
+                      >
+                        View/Edit Eval
+                      </button>
+                    )}
+                  </td>
                   <td className="px-3 py-3 text-right">
-                    <button
-                      onClick={() => openTranscript(row)}
-                      className="px-3 py-1.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700"
-                    >
+                    <button onClick={() => openTranscript(row)} className="px-3 py-1.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700">
                       Review Transcript
                     </button>
                   </td>
@@ -265,6 +342,18 @@ export default function NeedsReviewDashboard() {
         studentLabel="Student"
         assistantLabel="Patient"
         onClose={() => setTranscriptOpen(false)}
+      />
+
+      <EvaluationApprovalModal
+        open={evaluationOpen}
+        title={evaluationTitle}
+        loading={evaluationLoading}
+        saving={evaluationSaving}
+        error={evaluationError}
+        evaluationData={evaluationRows}
+        transcript={evaluationTranscript}
+        onClose={() => setEvaluationOpen(false)}
+        onSave={saveEvaluation}
       />
     </div>
   )
