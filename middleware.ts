@@ -32,7 +32,7 @@ const getSessionInfo = async (request: NextRequest): Promise<SessionInfo | null>
   }
 }
 
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
   const session = await getSessionInfo(request)
 
