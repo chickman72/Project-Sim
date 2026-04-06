@@ -32,6 +32,7 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
   const [formData, setFormData] = useState({ name: '', selectedStudents: new Set<string>() })
   const [studentSearch, setStudentSearch] = useState('')
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [expandedCohorts, setExpandedCohorts] = useState<Set<string>>(new Set())
 
   // Load cohorts and students
   useEffect(() => {
@@ -208,6 +209,20 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
     setTimeout(() => setToastMessage(null), 1800)
   }
 
+  const isStudentListCollapsed = (cohortId: string) => !expandedCohorts.has(cohortId)
+
+  const toggleStudentList = (cohortId: string) => {
+    setExpandedCohorts((prev) => {
+      const next = new Set(prev)
+      if (next.has(cohortId)) {
+        next.delete(cohortId)
+      } else {
+        next.add(cohortId)
+      }
+      return next
+    })
+  }
+
   const handleCopyInviteLink = async (cohortId: string) => {
     try {
       const base = (process.env.NEXT_PUBLIC_APP_URL || window.location.origin).replace(/\/+$/, '')
@@ -244,13 +259,13 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
       )}
 
       {/* Create/Edit Form */}
-      {(showCreateForm || editingCohort) && (
+      {showCreateForm && (
         <div className="border border-gray-200 rounded-lg p-6 bg-gray-50">
           <h3 className="text-lg font-semibold mb-4">
-            {editingCohort ? 'Edit Cohort' : 'Create New Cohort'}
+            Create New Cohort
           </h3>
 
-          <form onSubmit={editingCohort ? handleUpdateCohort : handleCreateCohort} className="space-y-4">
+          <form onSubmit={handleCreateCohort} className="space-y-4">
             {/* Cohort Name */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -266,49 +281,47 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
             </div>
 
             {/* Student Selection (only for create) */}
-            {!editingCohort && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Add Students (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={studentSearch}
-                  onChange={(e) => setStudentSearch(e.target.value)}
-                  placeholder="Search by username or email..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
-                />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Add Students (Optional)
+              </label>
+              <input
+                type="text"
+                value={studentSearch}
+                onChange={(e) => setStudentSearch(e.target.value)}
+                placeholder="Search by username or email..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+              />
 
-                <div className="border border-gray-300 rounded-md p-3 bg-white max-h-48 overflow-y-auto">
-                  {filteredStudents.length > 0 ? (
-                    <div className="space-y-2">
-                      {filteredStudents.map((student) => (
-                        <label key={student.id} className="flex items-center">
-                          <input
-                            type="checkbox"
-                            checked={formData.selectedStudents.has(student.id)}
-                            onChange={() => toggleStudentSelection(student.id)}
-                            className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                          />
-                          <span className="ml-2 text-sm text-gray-700">
-                            {student.username} ({student.email || '-'})
-                          </span>
-                        </label>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500 text-center py-2">
-                      {studentSearch ? 'No students found' : 'No students available'}
-                    </p>
-                  )}
-                </div>
-                {formData.selectedStudents.size > 0 && (
-                  <p className="text-sm text-blue-600 mt-2">
-                    {formData.selectedStudents.size} student(s) selected
+              <div className="border border-gray-300 rounded-md p-3 bg-white max-h-48 overflow-y-auto">
+                {filteredStudents.length > 0 ? (
+                  <div className="space-y-2">
+                    {filteredStudents.map((student) => (
+                      <label key={student.id} className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={formData.selectedStudents.has(student.id)}
+                          onChange={() => toggleStudentSelection(student.id)}
+                          className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                        />
+                        <span className="ml-2 text-sm text-gray-700">
+                          {student.username} ({student.email || '-'})
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-500 text-center py-2">
+                    {studentSearch ? 'No students found' : 'No students available'}
                   </p>
                 )}
               </div>
-            )}
+              {formData.selectedStudents.size > 0 && (
+                <p className="text-sm text-blue-600 mt-2">
+                  {formData.selectedStudents.size} student(s) selected
+                </p>
+              )}
+            </div>
 
             {/* Action Buttons */}
             <div className="flex gap-3">
@@ -389,22 +402,34 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
 
                 {/* Students in Cohort */}
                 <div className="space-y-2">
-                  {cohort.studentIds.length > 0 ? (
-                    <div className="space-y-1">
-                      {cohort.studentIds.map((studentId) => (
-                        <div key={studentId} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
-                          <span className="text-gray-700">{getStudentName(studentId)}</span>
-                          <button
-                            onClick={() => handleRemoveStudent(cohort.id, studentId)}
-                            className="text-red-600 hover:text-red-800 font-semibold"
-                          >
-                            Remove
-                          </button>
+                  <button
+                    type="button"
+                    onClick={() => toggleStudentList(cohort.id)}
+                    className="text-sm font-medium text-gray-700 hover:text-gray-900"
+                  >
+                    Students ({cohort.studentIds.length}) {isStudentListCollapsed(cohort.id) ? '▸' : '▾'}
+                  </button>
+
+                  {!isStudentListCollapsed(cohort.id) && (
+                    <>
+                      {cohort.studentIds.length > 0 ? (
+                        <div className="space-y-1">
+                          {cohort.studentIds.map((studentId) => (
+                            <div key={studentId} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
+                              <span className="text-gray-700">{getStudentName(studentId)}</span>
+                              <button
+                                onClick={() => handleRemoveStudent(cohort.id, studentId)}
+                                className="text-red-600 hover:text-red-800 font-semibold"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500 italic">No students in this cohort</p>
+                      ) : (
+                        <p className="text-sm text-gray-500 italic">No students in this cohort</p>
+                      )}
+                    </>
                   )}
                 </div>
 
@@ -454,6 +479,60 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
         >
           Close
         </button>
+      )}
+
+      {editingCohort && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="relative w-full max-w-xl rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <h3 className="text-lg font-semibold text-gray-900">Edit Cohort</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingCohort(null)
+                  setFormData({ name: '', selectedStudents: new Set<string>() })
+                }}
+                className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="px-6 py-4">
+              <form onSubmit={handleUpdateCohort} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cohort Name
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    Update
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingCohort(null)
+                      setFormData({ name: '', selectedStudents: new Set<string>() })
+                    }}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

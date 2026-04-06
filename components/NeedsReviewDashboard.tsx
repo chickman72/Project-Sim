@@ -384,6 +384,7 @@ export default function NeedsReviewDashboard() {
         messages={transcriptMessages}
         studentLabel="Student"
         assistantLabel="Patient"
+        variant="modal"
         onClose={() => setTranscriptOpen(false)}
       />
 

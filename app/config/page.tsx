@@ -54,6 +54,7 @@ export default function Page() {
   const [rubric, setRubric] = useState<RubricCriterion[]>([])
   const [conversationStarters, setConversationStarters] = useState<string[]>([])
   const [isPracticeMode, setIsPracticeMode] = useState(false)
+  const [isEvaluationCriteriaOpen, setIsEvaluationCriteriaOpen] = useState(true)
   const [cohorts, setCohorts] = useState<{ id: string; name: string }[]>([])
   const [selectedVisibility, setSelectedVisibility] = useState<SimulationVisibility>('global')
   const [selectedCohortId, setSelectedCohortId] = useState<string | undefined>(undefined)
@@ -238,8 +239,8 @@ export default function Page() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
+        <div className={`grid grid-cols-1 gap-8 ${activeTab === 'simulations' ? 'lg:grid-cols-3' : 'lg:grid-cols-1'}`}>
+          <div className={activeTab === 'simulations' ? 'lg:col-span-2' : 'lg:col-span-1'}>
             {/* Tabs */}
             <div className="flex gap-0 mb-6 border-b border-gray-200 bg-white rounded-t-lg">
               <button
@@ -413,69 +414,82 @@ export default function Page() {
               </div>
               <div className="mt-6 border border-gray-200 rounded-md p-4 bg-gray-50">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-900">Evaluation Criteria</h3>
                   <button
                     type="button"
-                    onClick={() => {
-                      const id = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
-                        ? crypto.randomUUID()
-                        : Math.random().toString(36).slice(2)
-                      setRubric([...rubric, { id, name: '', successCondition: '' }])
-                      setIsDirty(true)
-                    }}
-                    className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700"
+                    onClick={() => setIsEvaluationCriteriaOpen(!isEvaluationCriteriaOpen)}
+                    className="text-sm font-semibold text-gray-900 hover:text-gray-700"
                   >
-                    Add Criterion
+                    Evaluation Criteria ({rubric.length}) {isEvaluationCriteriaOpen ? '▾' : '▸'}
                   </button>
-                </div>
-                {rubric.length === 0 ? (
-                  <p className="text-sm text-gray-500">No criteria added yet.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {rubric.map((criterion, index) => (
-                      <div key={criterion.id} className="rounded-md border border-gray-200 bg-white p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-semibold text-gray-600">Criterion {index + 1}</p>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRubric(rubric.filter((r) => r.id !== criterion.id))
-                              setIsDirty(true)
-                            }}
-                            className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                        <div className="space-y-2">
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Criteria Name</label>
-                            <input
-                              value={criterion.name}
-                              onChange={(e) => {
-                                setRubric(rubric.map((r) => r.id === criterion.id ? { ...r, name: e.target.value } : r))
-                                setIsDirty(true)
-                              }}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              placeholder="e.g., Hand Hygiene"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-gray-700 mb-1">Success Condition</label>
-                            <textarea
-                              value={criterion.successCondition}
-                              onChange={(e) => {
-                                setRubric(rubric.map((r) => r.id === criterion.id ? { ...r, successCondition: e.target.value } : r))
-                                setIsDirty(true)
-                              }}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-y min-h-16 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                              placeholder="e.g., Student must wash hands before patient contact."
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const id = (typeof crypto !== 'undefined' && 'randomUUID' in crypto)
+                          ? crypto.randomUUID()
+                          : Math.random().toString(36).slice(2)
+                        setRubric([...rubric, { id, name: '', successCondition: '' }])
+                        setIsDirty(true)
+                        setIsEvaluationCriteriaOpen(true)
+                      }}
+                      className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700"
+                    >
+                      Add Criterion
+                    </button>
                   </div>
+                </div>
+                {isEvaluationCriteriaOpen && (
+                  <>
+                    {rubric.length === 0 ? (
+                      <p className="text-sm text-gray-500">No criteria added yet.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {rubric.map((criterion, index) => (
+                          <div key={criterion.id} className="rounded-md border border-gray-200 bg-white p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <p className="text-xs font-semibold text-gray-600">Criterion {index + 1}</p>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRubric(rubric.filter((r) => r.id !== criterion.id))
+                                  setIsDirty(true)
+                                }}
+                                className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded hover:bg-red-200"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                            <div className="space-y-2">
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Criteria Name</label>
+                                <input
+                                  value={criterion.name}
+                                  onChange={(e) => {
+                                    setRubric(rubric.map((r) => r.id === criterion.id ? { ...r, name: e.target.value } : r))
+                                    setIsDirty(true)
+                                  }}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  placeholder="e.g., Hand Hygiene"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-xs font-medium text-gray-700 mb-1">Success Condition</label>
+                                <textarea
+                                  value={criterion.successCondition}
+                                  onChange={(e) => {
+                                    setRubric(rubric.map((r) => r.id === criterion.id ? { ...r, successCondition: e.target.value } : r))
+                                    setIsDirty(true)
+                                  }}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm resize-y min-h-16 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  placeholder="e.g., Student must wash hands before patient contact."
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
               {isDirty && (
@@ -524,8 +538,8 @@ export default function Page() {
             )}
           </div>
 
+          {activeTab === 'simulations' && (
           <div className="lg:col-span-1">
-            {activeTab === 'simulations' && (
             <div className="bg-white rounded-lg shadow-md p-6">
               <h2 className="text-xl font-semibold mb-4">Previous Setups</h2>
               {setups.length > 0 ? (
@@ -588,8 +602,8 @@ export default function Page() {
                 <p className="text-gray-500">No previous setups found.</p>
               )}
             </div>
-            )}
           </div>
+          )}
         </div>
       </div>
     </div>

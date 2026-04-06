@@ -17,6 +17,7 @@ type TranscriptViewerProps = {
   messages: TranscriptMessage[]
   studentLabel?: string
   assistantLabel?: string
+  variant?: 'drawer' | 'modal'
   onClose: () => void
 }
 
@@ -31,6 +32,7 @@ export default function TranscriptViewer({
   messages,
   studentLabel = 'You',
   assistantLabel = 'Patient',
+  variant = 'drawer',
   onClose,
 }: TranscriptViewerProps) {
   const [pdfError, setPdfError] = useState<string | null>(null)
@@ -98,6 +100,80 @@ export default function TranscriptViewer({
     }
   }
 
+  const body = (
+    <>
+      <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">Transcript Review</h3>
+          <p className="text-sm text-gray-600 truncate">{title}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={downloadTranscriptPdf}
+            disabled={loading || !!error || messages.length === 0}
+            className="px-3 py-1.5 rounded-md bg-blue-600 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            Download PDF
+          </button>
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
+        {pdfError && <p className="mb-3 text-sm text-red-600">{pdfError}</p>}
+        {loading && <p className="text-sm text-gray-600">Loading transcript...</p>}
+        {!loading && error && <p className="text-sm text-red-600">{error}</p>}
+        {!loading && !error && messages.length === 0 && (
+          <p className="text-sm text-gray-600">No transcript entries were found for this session.</p>
+        )}
+
+        {!loading && !error && messages.length > 0 && (
+          <div className="space-y-3">
+            {messages.map((message, index) => {
+              const isStudent = message.role === 'student'
+              return (
+                <div key={`${message.role}-${index}`} className={isStudent ? 'text-right' : 'text-left'}>
+                  <div
+                    className={`inline-block max-w-[90%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                      isStudent
+                        ? 'bg-blue-600 text-white rounded-br-md'
+                        : 'bg-white text-gray-900 border border-gray-200 rounded-bl-md'
+                    }`}
+                  >
+                    <div className={`mb-1 text-xs font-semibold ${isStudent ? 'text-blue-100' : 'text-gray-500'}`}>
+                      {isStudent ? studentLabel : assistantLabel}
+                    </div>
+                    <div className="whitespace-pre-wrap break-words">{message.content}</div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </>
+  )
+
+  if (variant === 'modal') {
+    return (
+      <div className="fixed inset-0 z-50">
+        <button
+          className="absolute inset-0 bg-black/40"
+          onClick={onClose}
+          aria-label="Close transcript"
+        />
+        <div className="relative mx-auto mt-16 h-[80vh] w-[94%] max-w-4xl overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl flex flex-col">
+          {body}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="fixed inset-0 z-50">
       <button
@@ -106,60 +182,7 @@ export default function TranscriptViewer({
         aria-label="Close transcript"
       />
       <div className="absolute right-0 top-0 h-full w-full max-w-2xl bg-white shadow-xl border-l border-gray-200 flex flex-col">
-        <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">Transcript Review</h3>
-            <p className="text-sm text-gray-600 truncate">{title}</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={downloadTranscriptPdf}
-              disabled={loading || !!error || messages.length === 0}
-              className="px-3 py-1.5 rounded-md bg-blue-600 text-sm text-white hover:bg-blue-700 disabled:opacity-50"
-            >
-              Download PDF
-            </button>
-            <button
-              onClick={onClose}
-              className="px-3 py-1.5 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Close
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 bg-gray-50">
-          {pdfError && <p className="mb-3 text-sm text-red-600">{pdfError}</p>}
-          {loading && <p className="text-sm text-gray-600">Loading transcript...</p>}
-          {!loading && error && <p className="text-sm text-red-600">{error}</p>}
-          {!loading && !error && messages.length === 0 && (
-            <p className="text-sm text-gray-600">No transcript entries were found for this session.</p>
-          )}
-
-          {!loading && !error && messages.length > 0 && (
-            <div className="space-y-3">
-              {messages.map((message, index) => {
-                const isStudent = message.role === 'student'
-                return (
-                  <div key={`${message.role}-${index}`} className={isStudent ? 'text-right' : 'text-left'}>
-                    <div
-                      className={`inline-block max-w-[90%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                        isStudent
-                          ? 'bg-blue-600 text-white rounded-br-md'
-                          : 'bg-white text-gray-900 border border-gray-200 rounded-bl-md'
-                      }`}
-                    >
-                      <div className={`mb-1 text-xs font-semibold ${isStudent ? 'text-blue-100' : 'text-gray-500'}`}>
-                        {isStudent ? studentLabel : assistantLabel}
-                      </div>
-                      <div className="whitespace-pre-wrap break-words">{message.content}</div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
+        {body}
       </div>
     </div>
   )
