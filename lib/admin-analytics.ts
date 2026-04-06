@@ -1,5 +1,5 @@
 import type { SqlParameter } from '@azure/cosmos'
-import { getLogsContainer, getTelemetryContainer } from './cosmos'
+import { getLogsContainer, getSetupsContainer, getTelemetryContainer } from './cosmos'
 import { listUsers } from './user'
 import { getCohortsContainer, type Cohort } from './cohort'
 import type { TelemetryEvent, TelemetryEventType } from './telemetry'
@@ -51,6 +51,52 @@ const loadCohorts = async (): Promise<Cohort[]> => {
   const container = await getCohortsContainer()
   const { resources } = await container.items.query('SELECT * FROM c').fetchAll()
   return resources as Cohort[]
+}
+
+const loadSessionScenarioMap = async (sessionIds: string[]): Promise<Map<string, string>> => {
+  const result = new Map<string, string>()
+  if (!sessionIds.length) return result
+
+  const logsContainer = await getLogsContainer()
+  const lookups = sessionIds.map(async (sessionId) => {
+    try {
+      const { resources } = await logsContainer.items
+        .query<{ scenarioId?: string }>({
+          query:
+            'SELECT TOP 1 c.scenarioId FROM c WHERE c.sessionId = @sessionId AND IS_DEFINED(c.scenarioId) AND c.scenarioId != "" ORDER BY c.timestamp DESC',
+          parameters: [{ name: '@sessionId', value: sessionId }],
+        })
+        .fetchAll()
+
+      const scenarioId = resources?.[0]?.scenarioId
+      if (typeof scenarioId === 'string' && scenarioId) {
+        result.set(sessionId, scenarioId)
+      }
+    } catch {
+      // Ignore lookup failures for individual sessions.
+    }
+  })
+
+  await Promise.all(lookups)
+  return result
+}
+
+const loadScenarioCohortMap = async (): Promise<Map<string, string>> => {
+  const result = new Map<string, string>()
+  const setupsContainer = await getSetupsContainer()
+  const { resources } = await setupsContainer.items
+    .query<{ code?: string; assignedCohortId?: string }>({
+      query: 'SELECT c.code, c.assignedCohortId FROM c WHERE IS_DEFINED(c.code)',
+    })
+    .fetchAll()
+
+  for (const row of resources || []) {
+    if (typeof row.code === 'string' && typeof row.assignedCohortId === 'string' && row.assignedCohortId) {
+      result.set(row.code, row.assignedCohortId)
+    }
+  }
+
+  return result
 }
 
 type LegacyAuditRecord = {
@@ -190,22 +236,24 @@ export const getAdminAnalytics = async (filters: AnalyticsFilters): Promise<Admi
   const legacyEvents = await loadLegacyTelemetryEvents(filters, telemetryStartTimestamp)
   const rawEvents = [...rawTelemetryEvents, ...legacyEvents]
 
-  const [users, cohorts] = await Promise.all([listUsers(), loadCohorts()])
+  const sessionIds = Array.from(
+    new Set(rawEvents.map((event) => event.metadata?.sessionId).filter((value): value is string => typeof value === 'string' && value.length > 0))
+  )
+
+  const [users, cohorts, sessionScenarioMap, scenarioCohortMap] = await Promise.all([
+    listUsers(),
+    loadCohorts(),
+    loadSessionScenarioMap(sessionIds),
+    loadScenarioCohortMap(),
+  ])
   const userById = new Map(users.map((u) => [u.id, u]))
   const cohortById = new Map(cohorts.map((c) => [c.id, c]))
-  const cohortIdsByStudent = new Map<string, string[]>()
-  cohorts.forEach((cohort) => {
-    cohort.studentIds.forEach((studentId) => {
-      const existing = cohortIdsByStudent.get(studentId) || []
-      existing.push(cohort.id)
-      cohortIdsByStudent.set(studentId, existing)
-    })
-  })
 
   let events = rawEvents.map((event) => {
     const user = userById.get(event.userId)
-    const membershipCohortIds = cohortIdsByStudent.get(event.userId) || []
-    const cohortId = event.metadata?.cohortId || membershipCohortIds[0]
+    const sessionId = event.metadata?.sessionId
+    const scenarioId = sessionId ? sessionScenarioMap.get(sessionId) : undefined
+    const cohortId = scenarioId ? scenarioCohortMap.get(scenarioId) : undefined
     const cohort = cohortId ? cohortById.get(cohortId) : undefined
     return {
       ...event,
@@ -217,11 +265,7 @@ export const getAdminAnalytics = async (filters: AnalyticsFilters): Promise<Admi
   })
 
   if (filters.cohortId) {
-    events = events.filter((event) => {
-      if (event.cohortId === filters.cohortId) return true
-      const membership = cohortIdsByStudent.get(event.userId) || []
-      return membership.includes(filters.cohortId as string)
-    })
+    events = events.filter((event) => event.cohortId === filters.cohortId)
   }
 
   events.sort((a, b) => {
