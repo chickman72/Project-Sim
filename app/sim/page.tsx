@@ -112,6 +112,7 @@ export default function Page() {
   const [voiceMode, setVoiceMode] = useState(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
+  const [isNavWarningOpen, setIsNavWarningOpen] = useState(false)
   const [isCompletingSession, setIsCompletingSession] = useState(false)
 
   const [transcriptOpen, setTranscriptOpen] = useState(false)
@@ -379,6 +380,10 @@ export default function Page() {
     await fetchHubData()
   }
 
+  const handleBackToDashboardClick = () => {
+    setIsNavWarningOpen(true)
+  }
+
   const applyConversationStarter = (starter: string) => {
     setInput(starter)
     chatInputRef.current?.focus()
@@ -614,6 +619,15 @@ export default function Page() {
   if (view === 'chat') {
     return (
       <div className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6">
+        <div className="max-w-7xl mx-auto mb-3">
+          <button
+            type="button"
+            onClick={handleBackToDashboardClick}
+            className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900"
+          >
+            &lt; Back to Dashboard
+          </button>
+        </div>
         <div className="max-w-7xl mx-auto h-[calc(100vh-3rem)] grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col justify-between">
             <div>
@@ -647,29 +661,23 @@ export default function Page() {
 
             <div className="mt-4 space-y-2">
               <div className="text-xs text-gray-600">Logged in as: {userName || userId}</div>
-              <button
-                className="w-full px-3 py-2 bg-emerald-600 text-white rounded-md text-sm hover:bg-emerald-700"
-                onClick={() => setIsConfirmOpen(true)}
-              >
-                {activeSimulationIsPracticeMode ? 'End Practice Session' : 'Complete & Submit for Grading'}
-              </button>
-              <button
-                className="w-full px-3 py-2 bg-gray-200 text-gray-800 rounded-md text-sm hover:bg-gray-300"
-                onClick={returnToHub}
-              >
-                Back to Hub
-              </button>
-              <button
-                className="w-full px-3 py-2 bg-red-500 text-white rounded-md text-sm hover:bg-red-600"
-                onClick={logout}
-              >
-                Logout
-              </button>
             </div>
           </div>
 
           <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col">
-            <h2 className="font-semibold mb-2 text-gray-900">Simulation Chat</h2>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h2 className="font-semibold text-gray-900">Simulation Chat</h2>
+              <button
+                type="button"
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold text-white shadow-sm ${
+                  activeSimulationIsPracticeMode ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
+                }`}
+                onClick={() => setIsConfirmOpen(true)}
+              >
+                <span aria-hidden="true">✓</span>
+                {activeSimulationIsPracticeMode ? 'End Practice Session' : 'Complete Simulation'}
+              </button>
+            </div>
             <div className="flex-1 overflow-y-auto p-3 border rounded-md bg-gray-50">
               {messages.length === 0 && <div className="text-sm text-gray-500">No messages yet. Start by sending a message.</div>}
               {messages.map((m: Message, i: number) => (
@@ -717,6 +725,53 @@ export default function Page() {
             </div>
           </div>
         </div>
+
+        {isNavWarningOpen && (
+          <div className="fixed inset-0 z-50">
+            <button
+              className="absolute inset-0 bg-black/40"
+              onClick={() => setIsNavWarningOpen(false)}
+              aria-label="Close navigation warning"
+            />
+            <div className="relative mx-auto mt-24 w-[92%] max-w-lg rounded-xl border border-gray-200 bg-white shadow-xl p-5">
+              <h3 className="text-lg font-semibold text-gray-900">Leaving Active Simulation</h3>
+              <p className="mt-2 text-sm text-gray-600">
+                You are about to leave this active session. What would you like to do?
+              </p>
+              <div className="mt-5 flex flex-col sm:flex-row sm:items-center sm:justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsNavWarningOpen(false)
+                    await returnToHub()
+                  }}
+                  className="px-3 py-2 rounded-md border border-gray-300 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  Pause &amp; Return to Hub
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsNavWarningOpen(false)
+                    setIsConfirmOpen(true)
+                  }}
+                  className={`px-3 py-2 rounded-md text-sm text-white ${
+                    activeSimulationIsPracticeMode ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
+                  }`}
+                >
+                  End Session &amp; Submit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsNavWarningOpen(false)}
+                  className="px-3 py-2 rounded-md text-sm text-gray-600 hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {isConfirmOpen && (
           <div className="fixed inset-0 z-50">
@@ -913,6 +968,7 @@ export default function Page() {
         loading={transcriptLoading}
         error={transcriptError}
         messages={transcriptMessages}
+        variant="modal"
         onClose={() => setTranscriptOpen(false)}
       />
 
