@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { verifySessionToken, getSessionCookieName } from 'lib/auth'
-import { getUserById, updateUser, deleteUser, UserRole } from 'lib/user'
+import { getUserById, getUserByEmail, updateUser, deleteUser, UserRole } from 'lib/user'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = req.cookies?.[getSessionCookieName()]
@@ -16,7 +16,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === 'PUT') {
-    const { username, password, role } = req.body || {}
+    const { username, email, password, role } = req.body || {}
 
     try {
       const user = await getUserById(id)
@@ -24,8 +24,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(404).json({ error: 'User not found' })
       }
 
-      const updates: Partial<{username: string; passwordHash?: string; role: UserRole; requiresPasswordChange?: boolean}> = {}
+      const updates: Partial<{username: string; email?: string; passwordHash?: string; role: UserRole; requiresPasswordChange?: boolean}> = {}
       if (typeof username === 'string') updates.username = username
+      if (typeof email === 'string') {
+        const normalizedEmail = email.trim().toLowerCase()
+        if (normalizedEmail) {
+          const existingByEmail = await getUserByEmail(normalizedEmail)
+          if (existingByEmail && existingByEmail.id !== id) {
+            return res.status(400).json({ error: 'Email already exists' })
+          }
+          updates.email = normalizedEmail
+        } else {
+          updates.email = undefined
+        }
+      }
       if (typeof role === 'string' && ['Administrator', 'Instructor', 'Student'].includes(role)) {
         updates.role = role as UserRole
       }
@@ -39,7 +51,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(500).json({ error: 'Failed to update user' })
       }
 
-      const safeUser = { id: updated.id, username: updated.username, role: updated.role, createdAt: updated.createdAt, updatedAt: updated.updatedAt }
+      const safeUser = { id: updated.id, username: updated.username, email: updated.email, role: updated.role, createdAt: updated.createdAt, updatedAt: updated.updatedAt }
       return res.status(200).json(safeUser)
     } catch (error) {
       console.error('Error updating user:', error)

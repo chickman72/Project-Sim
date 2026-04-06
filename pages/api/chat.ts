@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSessionCookieName, verifySessionToken } from '../../lib/auth'
 import { toAuditJson, writeAuditRecord, type CompletionStatus } from '../../lib/audit-log'
+import { getPrimaryCohortIdForUser, logTelemetryEvent } from '../../lib/telemetry'
 
 const DEFAULT_LLMLITE_URL =
   'https://proxy-ai-anes-uabmc-awefchfueccrddhf.eastus2-01.azurewebsites.net/'
@@ -63,6 +64,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ['in-progress', 'completed', 'abandoned', 'timeout'].includes(value)
 
   if (!userMessage) return res.status(400).json({ error: 'userMessage required' })
+
+  if (session.role === 'Student') {
+    try {
+      const cohortId = await getPrimaryCohortIdForUser(session.userId)
+      await logTelemetryEvent({
+        userId: session.userId,
+        eventType: 'chat_message',
+        metadata: {
+          ...(cohortId ? { cohortId } : {}),
+          ...(session.sessionId ? { sessionId: session.sessionId } : {})
+        }
+      })
+    } catch (telemetryErr) {
+      console.error('Failed writing telemetry event', telemetryErr)
+    }
+  }
 
   const messages: Msg[] = []
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })

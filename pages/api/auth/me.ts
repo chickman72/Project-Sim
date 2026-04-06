@@ -23,6 +23,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   return res.status(200).json({
     userId: session.userId,
     username: user.username,
+    email: user.email || null,
     role: normalizeRole(session.role || user.role),
   })
 }

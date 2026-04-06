@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSessionCookieName, verifySessionToken } from '../../../lib/auth'
 import { writeAuditRecord } from '../../../lib/audit-log'
+import { getPrimaryCohortIdForUser, logTelemetryEvent } from '../../../lib/telemetry'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end()
@@ -23,6 +24,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     })
   } catch (logErr) {
     console.error('Failed writing audit log', logErr)
+  }
+
+  if (session?.userId) {
+    try {
+      const cohortId = session.role === 'Student' ? await getPrimaryCohortIdForUser(session.userId) : undefined
+      await logTelemetryEvent({
+        userId: session.userId,
+        eventType: 'logout',
+        metadata: {
+          ...(cohortId ? { cohortId } : {}),
+          ...(session.sessionId ? { sessionId: session.sessionId } : {})
+        }
+      })
+    } catch (telemetryErr) {
+      console.error('Failed writing telemetry event', telemetryErr)
+    }
   }
 
   return res.status(200).json({ ok: true })

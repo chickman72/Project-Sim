@@ -7,6 +7,7 @@ import AnalyticsDashboard from '../components/AnalyticsDashboard'
 interface User {
   id: string
   username: string
+  email?: string
   role: 'Administrator' | 'Instructor' | 'Student'
   createdAt: string
   updatedAt: string
@@ -35,9 +36,10 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
-  const [formData, setFormData] = useState({ username: '', password: '', role: 'Administrator' as 'Administrator' | 'Instructor' | 'Student' })
+  const [formData, setFormData] = useState({ username: '', email: '', password: '', role: 'Administrator' as 'Administrator' | 'Instructor' | 'Student' })
   const [userId, setUserId] = useState<string | null>(null)
   const [userName, setUserName] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<'Administrator' | 'Instructor' | 'Student' | null>(null)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'users' | 'analytics' | 'simulations'>('users')
@@ -60,6 +62,7 @@ export default function AdminPage() {
         if (data?.userId && data?.role === 'Administrator') {
           setUserId(data.userId)
           setUserName(data.username || data.userId)
+          setUserEmail(data.email || null)
           setUserRole(data.role)
           fetchUsers()
           fetchSimulations()
@@ -118,11 +121,12 @@ export default function AdminPage() {
     } finally {
       setUserId(null)
       setUserName(null)
+      setUserEmail(null)
       setUserRole(null)
       setUsers([])
       setShowAddForm(false)
       setEditingUser(null)
-      setFormData({ username: '', password: '', role: 'Student' })
+      setFormData({ username: '', email: '', password: '', role: 'Student' })
       router.replace('/')
     }
   }
@@ -135,7 +139,7 @@ export default function AdminPage() {
       const url = editingUser ? `/api/users/${editingUser.id}` : '/api/users'
       const method = editingUser ? 'PUT' : 'POST'
       const body = editingUser
-        ? { username: formData.username, role: formData.role, ...(formData.password && { password: formData.password }) }
+        ? { username: formData.username, email: formData.email, role: formData.role, ...(formData.password && { password: formData.password }) }
         : formData
 
       const res = await fetch(url, {
@@ -148,7 +152,7 @@ export default function AdminPage() {
         await fetchUsers()
         setShowAddForm(false)
         setEditingUser(null)
-        setFormData({ username: '', password: '', role: 'Student' })
+        setFormData({ username: '', email: '', password: '', role: 'Student' })
       } else {
         const errorData = await res.json().catch(() => ({}))
         setError(errorData.error || `Failed to save user (${res.status})`)
@@ -160,7 +164,7 @@ export default function AdminPage() {
 
   const handleEdit = (user: User) => {
     setEditingUser(user)
-    setFormData({ username: user.username, password: '', role: user.role })
+    setFormData({ username: user.username, email: user.email || '', password: '', role: user.role })
     setShowAddForm(true)
   }
 
@@ -207,7 +211,7 @@ export default function AdminPage() {
   const resetForm = () => {
     setShowAddForm(false)
     setEditingUser(null)
-    setFormData({ username: '', password: '', role: 'Administrator' })
+    setFormData({ username: '', email: '', password: '', role: 'Administrator' })
   }
 
   const handleBulkImport = async (file: File) => {
@@ -260,15 +264,10 @@ export default function AdminPage() {
       <div className="cursor-pointer">
         <div className="h-9 w-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-semibold">{initials}</div>
       </div>
-      <div className={`${isUserMenuOpen ? 'block' : 'hidden'} absolute right-0 mt-2 w-52 rounded-md bg-white border border-gray-200 shadow-lg p-3 text-sm z-10`}>
+      <div className={`${isUserMenuOpen ? 'block' : 'hidden'} absolute right-0 mt-2 w-64 rounded-md bg-white border border-gray-200 shadow-lg p-3 text-sm z-10`}>
         <div className="text-gray-600 font-medium break-all">{userName || userId}</div>
+        <div className="text-gray-500 text-xs break-all">{userEmail || '-'}</div>
         <div className="text-gray-500 text-xs">{(userRole || '').toUpperCase()}</div>
-        <button
-          className="mt-2 w-full px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
-          onClick={logout}
-        >
-          Log Out
-        </button>
       </div>
     </div>
   )
@@ -284,6 +283,12 @@ export default function AdminPage() {
             </div>
             <div className="flex items-center gap-3">
               <UserBadge />
+              <button
+                className="px-4 py-2 bg-red-500 text-white text-sm rounded-md hover:bg-red-600"
+                onClick={logout}
+              >
+                Logout
+              </button>
             </div>
           </div>
 
@@ -319,8 +324,7 @@ export default function AdminPage() {
         )}
 
         {activeTab === 'users' ? (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
+          <div className="space-y-8">
             <div className="bg-white rounded-lg shadow-md p-6">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold">Users</h2>
@@ -343,92 +347,46 @@ export default function AdminPage() {
               {loading ? (
                 <div>Loading...</div>
               ) : (
-                <table className="w-full border-collapse border border-gray-300">
-                  <thead>
-                    <tr className="bg-gray-100">
-                      <th className="border border-gray-300 p-2 text-left">Username</th>
-                      <th className="border border-gray-300 p-2 text-left">Role</th>
-                      <th className="border border-gray-300 p-2 text-left">Created</th>
-                      <th className="border border-gray-300 p-2 text-left">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map(user => (
-                      <tr key={user.id}>
-                        <td className="border border-gray-300 p-2">{user.username}</td>
-                        <td className="border border-gray-300 p-2">{user.role}</td>
-                        <td className="border border-gray-300 p-2">{new Date(user.createdAt).toLocaleDateString()}</td>
-                        <td className="border border-gray-300 p-2">
-                          <button
-                            onClick={() => handleEdit(user)}
-                            className="px-3 py-1 bg-yellow-500 text-white text-sm rounded-md hover:bg-yellow-600 mr-2"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleDelete(user.id)}
-                            className="px-3 py-1 bg-red-500 text-white text-sm rounded-md hover:bg-red-600"
-                          >
-                            Delete
-                          </button>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse border border-gray-300">
+                    <thead>
+                      <tr className="bg-gray-100">
+                        <th className="border border-gray-300 p-2 text-left">User Name</th>
+                        <th className="border border-gray-300 p-2 text-left">Email</th>
+                        <th className="border border-gray-300 p-2 text-left">Role</th>
+                        <th className="border border-gray-300 p-2 text-left">Created</th>
+                        <th className="border border-gray-300 p-2 text-left">Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {users.map(user => (
+                        <tr key={user.id}>
+                          <td className="border border-gray-300 p-2">{user.username}</td>
+                          <td className="border border-gray-300 p-2">{user.email || '-'}</td>
+                          <td className="border border-gray-300 p-2">{user.role}</td>
+                          <td className="border border-gray-300 p-2">{new Date(user.createdAt).toLocaleDateString()}</td>
+                          <td className="border border-gray-300 p-2">
+                            <button
+                              onClick={() => handleEdit(user)}
+                              className="px-3 py-1 bg-yellow-500 text-white text-sm rounded-md hover:bg-yellow-600 mr-2"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDelete(user.id)}
+                              className="px-3 py-1 bg-red-500 text-white text-sm rounded-md hover:bg-red-600"
+                            >
+                              Delete
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           </div>
-
-          <div className="lg:col-span-1">
-            {showAddForm && (
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <h2 className="text-xl font-semibold mb-4">{editingUser ? 'Edit User' : 'Add User'}</h2>
-                
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
-                    <input
-                      type="text"
-                      value={formData.username}
-                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                    <input
-                      type="password"
-                      value={formData.password}
-                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      required={!editingUser}
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                    <select
-                      value={formData.role}
-                        onChange={(e) => setFormData({ ...formData, role: e.target.value as 'Administrator' | 'Instructor' | 'Student' })}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="Student">Student</option>                    <option value="Instructor">Instructor</option>                      <option value="Administrator">Administrator</option>
-                    </select>
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="submit" className="flex-1 px-4 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition-colors">
-                      {editingUser ? 'Update' : 'Create'}
-                    </button>
-                    <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-800 font-semibold rounded-md hover:bg-gray-300 transition-colors">
-                      Cancel
-                    </button>
-                  </div>
-                </form>
-              </div>
-            )}
-          </div>
-        </div>
         ) : activeTab === 'simulations' ? (
           <div className="bg-white rounded-lg shadow-md p-6">
             <div className="flex justify-between items-center mb-4">
@@ -499,6 +457,80 @@ export default function AdminPage() {
           </div>
         )}
       </div>
+
+      {/* Add/Edit User Modal */}
+      {showAddForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="relative w-full max-w-xl rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <h3 className="text-lg font-semibold text-gray-900">{editingUser ? 'Edit User' : 'Add User'}</h3>
+              <button
+                type="button"
+                onClick={resetForm}
+                className="text-gray-500 hover:text-gray-700 text-2xl leading-none"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="px-6 py-4">
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Username</label>
+                  <input
+                    type="text"
+                    value={formData.username}
+                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                {editingUser && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                    <input
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                )}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                  <input
+                    type="password"
+                    value={formData.password}
+                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required={!editingUser}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                  <select
+                    value={formData.role}
+                    onChange={(e) => setFormData({ ...formData, role: e.target.value as 'Administrator' | 'Instructor' | 'Student' })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="Student">Student</option>
+                    <option value="Instructor">Instructor</option>
+                    <option value="Administrator">Administrator</option>
+                  </select>
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button type="submit" className="flex-1 px-4 py-2 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition-colors">
+                    {editingUser ? 'Update' : 'Create'}
+                  </button>
+                  <button type="button" onClick={resetForm} className="px-4 py-2 bg-gray-200 text-gray-800 font-semibold rounded-md hover:bg-gray-300 transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Bulk Import Modal */}
       {showBulkImportModal && (

@@ -3,6 +3,7 @@ import { authenticateLogin, createSessionToken, getSessionCookieName, verifySess
 import { toAuditJson, writeAuditRecord } from 'lib/audit-log'
 import { listUsers, createUser, updateUser } from 'lib/user'
 import { getCohortsByStudent } from 'lib/cohort'
+import { getPrimaryCohortIdForUser, logTelemetryEvent } from 'lib/telemetry'
 
 const normalizeRole = (role: string | undefined | null): 'Student' | 'Instructor' | 'Administrator' => {
   const raw = String(role || '').trim().toLowerCase()
@@ -101,6 +102,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
     } catch (logErr) {
       console.error('Failed writing audit log', logErr)
+    }
+
+    try {
+      const cohortId = normalizedRole === 'Student' ? await getPrimaryCohortIdForUser(user.id) : undefined
+      await logTelemetryEvent({
+        userId: user.id,
+        eventType: 'login',
+        metadata: {
+          ...(cohortId ? { cohortId } : {}),
+          ...(session?.sessionId ? { sessionId: session.sessionId } : {})
+        }
+      })
+    } catch (telemetryErr) {
+      console.error('Failed writing telemetry event', telemetryErr)
     }
 
     const needsPasswordChange = user.requiresPasswordChange ?? false

@@ -41,6 +41,7 @@ export default function Page() {
 
   const [userId, setUserId] = useState<string | null>(null)
   const [userName, setUserName] = useState<string | null>(null)
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<'Administrator' | 'Instructor' | 'Student' | null>(null)
   const [authChecked, setAuthChecked] = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
@@ -106,6 +107,7 @@ export default function Page() {
         if (!data?.userId) return
         setUserId(String(data.userId))
         setUserName(data.username || String(data.userId))
+        setUserEmail(data.email || null)
         setUserRole(data.role || null)
       } finally {
         setAuthChecked(true)
@@ -132,6 +134,7 @@ export default function Page() {
     } finally {
       setUserId(null)
       setUserName(null)
+      setUserEmail(null)
       setUserRole(null)
     }
   }
@@ -200,15 +203,10 @@ export default function Page() {
       <div className="cursor-pointer">
         <div className="h-9 w-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-semibold">{initials}</div>
       </div>
-      <div className={`${isUserMenuOpen ? 'block' : 'hidden'} absolute right-0 mt-2 w-52 rounded-md bg-white border border-gray-200 shadow-lg p-3 text-sm z-10`}>
+      <div className={`${isUserMenuOpen ? 'block' : 'hidden'} absolute right-0 mt-2 w-64 rounded-md bg-white border border-gray-200 shadow-lg p-3 text-sm z-10`}>
         <div className="text-gray-600 font-medium break-all">{userName || userId}</div>
+        <div className="text-gray-500 text-xs break-all">{userEmail || '-'}</div>
         <div className="text-gray-500 text-xs">{userRole?.toUpperCase()}</div>
-        <button
-          className="mt-2 w-full px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600"
-          onClick={logout}
-        >
-          Log Out
-        </button>
       </div>
     </div>
   )
@@ -231,6 +229,12 @@ export default function Page() {
           <h1 className="text-3xl font-bold text-gray-900">Instructor Configuration</h1>
           <div className="flex items-center gap-3">
             <UserBadge />
+            <button
+              className="px-4 py-2 bg-red-500 text-white text-sm rounded-md hover:bg-red-600"
+              onClick={logout}
+            >
+              Logout
+            </button>
           </div>
         </div>
 

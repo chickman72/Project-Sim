@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSessionCookieName, verifySessionToken } from '../../../../lib/auth'
 import { writeAuditRecord } from '../../../../lib/audit-log'
+import { getPrimaryCohortIdForUser, logTelemetryEvent } from '../../../../lib/telemetry'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -38,6 +39,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       evaluationStatus: 'none',
       sessionDurationSeconds,
     })
+
+    try {
+      const cohortId = await getPrimaryCohortIdForUser(session.userId)
+      await logTelemetryEvent({
+        userId: session.userId,
+        eventType: 'sim_complete',
+        metadata: {
+          ...(cohortId ? { cohortId } : {}),
+          ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+          ...(typeof sessionDurationSeconds === 'number' ? { duration: sessionDurationSeconds } : {})
+        }
+      })
+    } catch (telemetryErr) {
+      console.error('Failed writing telemetry event', telemetryErr)
+    }
 
     return res.status(200).json({ success: true })
   } catch (error: any) {

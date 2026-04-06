@@ -94,7 +94,7 @@ export const getUserByUsername = async (username: string): Promise<User | null> 
   return resources[0] as User || null
 }
 
-export const updateUser = async (id: string, updates: Partial<Pick<User, 'username' | 'passwordHash' | 'role' | 'requiresPasswordChange' | 'resetToken' | 'resetTokenExpiry'>>): Promise<User | null> => {
+export const updateUser = async (id: string, updates: Partial<Pick<User, 'username' | 'email' | 'passwordHash' | 'role' | 'requiresPasswordChange' | 'resetToken' | 'resetTokenExpiry'>>): Promise<User | null> => {
   const container = await getUsersContainer()
   try {
     const { resource: existing } = await container.item(id).read()

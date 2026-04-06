@@ -44,3 +44,12 @@ export const getUsersContainer = async () => {
   })
   return container
 }
+
+export const getTelemetryContainer = async () => {
+  const db = await getDatabase()
+  const { container } = await db.containers.createIfNotExists({
+    id: 'telemetry',
+    partitionKey: '/userId'
+  })
+  return container
+}

@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react'
 interface Student {
   id: string
   username: string
-  email: string
+  email?: string
 }
 
 interface Cohort {
@@ -191,10 +191,12 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
     setFormData({ ...formData, selectedStudents: newSelected })
   }
 
-  const filteredStudents = students.filter(s =>
-    s.username.toLowerCase().includes(studentSearch.toLowerCase()) ||
-    s.email.toLowerCase().includes(studentSearch.toLowerCase())
-  )
+  const search = studentSearch.toLowerCase()
+  const filteredStudents = students.filter((s) => {
+    const username = (s.username || '').toLowerCase()
+    const email = (s.email || '').toLowerCase()
+    return username.includes(search) || email.includes(search)
+  })
 
   const getStudentName = (studentId: string) => {
     const student = students.find(s => s.id === studentId)
@@ -289,7 +291,7 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
                             className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
                           />
                           <span className="ml-2 text-sm text-gray-700">
-                            {student.username} ({student.email})
+                            {student.username} ({student.email || '-'})
                           </span>
                         </label>
                       ))}
@@ -431,7 +433,7 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
                               }}
                               className="w-full text-left px-2 py-1 text-sm bg-white hover:bg-blue-50 rounded border border-gray-200 transition"
                             >
-                              {student.username} ({student.email})
+                              {student.username} ({student.email || '-'})
                             </button>
                           ))}
                       </div>
