@@ -22,6 +22,10 @@ LLMLITE_URL=https://proxy-ai-anes-uabmc-awefchfueccrddhf.eastus2-01.azurewebsite
 # App login (required):
 # AUTH_PASSWORD=choose-a-password
 # SESSION_SECRET=long-random-string
+
+# Azure Speech TTS (required for AI voice playback):
+# AZURE_SPEECH_KEY=your-azure-speech-key
+# AZURE_SPEECH_REGION=eastus
 ```
 
 Features:

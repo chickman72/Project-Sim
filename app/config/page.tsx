@@ -13,6 +13,7 @@ type Simulation = {
   prompt: string
   title: string
   description: string
+  patientVoice?: string
   assignedCohortId?: string
   visibility?: SimulationVisibility
   isPracticeMode?: boolean
@@ -20,10 +21,19 @@ type Simulation = {
   rubric?: RubricCriterion[]
 }
 
+const DEFAULT_PATIENT_VOICE = 'en-US-JennyNeural'
+const PATIENT_VOICE_OPTIONS = [
+  { value: 'en-US-JennyNeural', label: 'en-US-JennyNeural (Female)' },
+  { value: 'en-US-GuyNeural', label: 'en-US-GuyNeural (Male)' },
+  { value: 'en-US-AriaNeural', label: 'en-US-AriaNeural (Female)' },
+  { value: 'en-US-DavisNeural', label: 'en-US-DavisNeural (Male)' },
+]
+
 const defaultDraftSim: DraftSimulation = {
   title: '',
   description: '',
   prompt: 'You are the patient in this scenario. Respond in English only.',
+  patientVoice: DEFAULT_PATIENT_VOICE,
   visibility: 'global',
   assignedCohortId: undefined,
   isPracticeMode: false,
@@ -69,6 +79,10 @@ export default function Page() {
             assignedCohortId: s.assignedCohortId,
             visibility: s.visibility || (s.assignedCohortId ? 'cohort' : 'global'),
             isPracticeMode: Boolean(s.isPracticeMode),
+            patientVoice:
+              typeof s.patientVoice === 'string' && s.patientVoice.trim().length > 0
+                ? s.patientVoice.trim()
+                : DEFAULT_PATIENT_VOICE,
             conversationStarters: Array.isArray(s.conversationStarters)
               ? s.conversationStarters.map((v: any) => String(v || ''))
               : [],
@@ -124,6 +138,10 @@ export default function Page() {
       title: setup.title || '',
       description: setup.description || '',
       prompt: setup.prompt || defaultDraftSim.prompt,
+      patientVoice:
+        typeof setup.patientVoice === 'string' && setup.patientVoice.trim().length > 0
+          ? setup.patientVoice.trim()
+          : DEFAULT_PATIENT_VOICE,
       visibility,
       assignedCohortId: visibility === 'cohort' ? setup.assignedCohortId : undefined,
       isPracticeMode: Boolean(setup.isPracticeMode),
@@ -167,6 +185,7 @@ export default function Page() {
       title: draftSim.title,
       description: draftSim.description,
       prompt: draftSim.prompt,
+      patientVoice: draftSim.patientVoice || DEFAULT_PATIENT_VOICE,
       visibility: draftSim.visibility,
       isPracticeMode: draftSim.isPracticeMode,
       conversationStarters: draftSim.conversationStarters,
@@ -352,6 +371,7 @@ export default function Page() {
                           })()}
                         </p>
                         <p>Practice: {setup.isPracticeMode ? 'Yes' : 'No'}</p>
+                        <p>Voice: {setup.patientVoice || DEFAULT_PATIENT_VOICE}</p>
                         <p>Rubric Criteria: {Array.isArray(setup.rubric) ? setup.rubric.length : 0}</p>
                       </div>
                       <div className="mt-4 flex items-center justify-between gap-2">
@@ -454,9 +474,9 @@ export default function Page() {
                         type="checkbox"
                         checked={draftSim.isPracticeMode}
                         onChange={(e) => {
-                          setDraftSim((prev) => ({ ...prev, isPracticeMode: e.target.checked }))
-                          setIsDirty(true)
-                        }}
+                        setDraftSim((prev) => ({ ...prev, isPracticeMode: e.target.checked }))
+                        setIsDirty(true)
+                      }}
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                       Practice Mode (Ungraded)
@@ -464,6 +484,24 @@ export default function Page() {
                     <p className="mt-1 text-xs text-gray-600">
                       Practice simulations always remain available for fresh attempts and are not treated as graded submissions.
                     </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Patient Voice</label>
+                    <select
+                      value={draftSim.patientVoice || DEFAULT_PATIENT_VOICE}
+                      onChange={(e) => {
+                        setDraftSim((prev) => ({ ...prev, patientVoice: e.target.value }))
+                        setIsDirty(true)
+                      }}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+                    >
+                      {PATIENT_VOICE_OPTIONS.map((voice) => (
+                        <option key={voice.value} value={voice.value}>
+                          {voice.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
 
                   <label className="block text-sm font-medium text-gray-700 mb-1">Scenario Prompt</label>

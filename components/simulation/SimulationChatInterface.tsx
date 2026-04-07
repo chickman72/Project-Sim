@@ -18,8 +18,8 @@ type Props = {
   showVoiceButton?: boolean
   voiceMode?: boolean
   onToggleVoiceMode?: () => void
-  isSpeaking?: boolean
-  isPatientSpeaking?: boolean
+  isListening?: boolean
+  isAiSpeaking?: boolean
 }
 
 export default function SimulationChatInterface({
@@ -39,8 +39,8 @@ export default function SimulationChatInterface({
   showVoiceButton = false,
   voiceMode = false,
   onToggleVoiceMode,
-  isSpeaking = false,
-  isPatientSpeaking = false,
+  isListening = false,
+  isAiSpeaking = false,
 }: Props) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col">
@@ -98,25 +98,43 @@ export default function SimulationChatInterface({
           />
           {showVoiceButton && onToggleVoiceMode && (
             <button
-              className={`px-4 py-2 rounded-md border ${voiceMode ? 'bg-red-600 text-white' : 'bg-white text-gray-800'}`}
+              className={`px-4 py-2 rounded-md border transition-colors ${
+                isListening
+                  ? 'bg-red-600 border-red-700 text-white animate-pulse'
+                  : voiceMode
+                    ? 'bg-red-100 border-red-300 text-red-800'
+                    : 'bg-white text-gray-800'
+              }`}
               onClick={onToggleVoiceMode}
               type="button"
             >
-              Speak
+              {isListening ? 'Listening...' : 'Speak'}
             </button>
           )}
           <button className="px-4 py-2 bg-green-600 text-white rounded-md" onClick={onSend} disabled={loading}>
             {loading ? 'Sending...' : 'Send'}
           </button>
         </div>
-        {showVoiceButton && voiceMode && (
-          <div className="mt-2 flex items-center gap-2 text-xs text-red-600">
-            <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-            <span>
-              Mic live
-              {isSpeaking ? ' - speaking' : ''}
-              {!isSpeaking && isPatientSpeaking ? ' - responding' : ''}
-            </span>
+        {showVoiceButton && (isListening || loading || isAiSpeaking) && (
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+            {isListening && (
+              <span className="inline-flex items-center gap-2 text-red-600">
+                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
+                Listening...
+              </span>
+            )}
+            {loading && (
+              <span className="inline-flex items-center gap-2 text-blue-600">
+                <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                AI is generating...
+              </span>
+            )}
+            {isAiSpeaking && (
+              <span className="inline-flex items-center gap-2 text-emerald-700">
+                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                AI is speaking...
+              </span>
+            )}
           </div>
         )}
       </div>

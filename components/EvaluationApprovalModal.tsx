@@ -13,6 +13,7 @@ type TranscriptMessage = {
   role: 'student' | 'assistant'
   content: string
   timestamp?: string
+  inputMethod?: 'text' | 'voice'
 }
 
 type EvaluationApprovalModalProps = {
@@ -117,7 +118,11 @@ export default function EvaluationApprovalModal({
                 return (
                   <div key={`${message.role}-${idx}`} className={isStudent ? 'text-right' : 'text-left'}>
                     <div className={`inline-block max-w-[90%] rounded-2xl px-4 py-3 text-sm ${isStudent ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-900'}`}>
-                      <div className={`mb-1 text-xs font-semibold ${isStudent ? 'text-blue-100' : 'text-gray-500'}`}>{isStudent ? 'Student' : 'Patient'}</div>
+                      <div className={`mb-1 text-xs font-semibold ${isStudent ? 'text-blue-100' : 'text-gray-500'}`}>
+                        {isStudent
+                          ? `Student (${message.inputMethod === 'voice' ? 'Voice' : 'Text'})`
+                          : 'Patient'}
+                      </div>
                       <div className="whitespace-pre-wrap break-words">{message.content}</div>
                     </div>
                   </div>

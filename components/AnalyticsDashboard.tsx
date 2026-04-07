@@ -45,6 +45,7 @@ type TranscriptMessage = {
   role: 'student' | 'assistant'
   content: string
   timestamp?: string
+  inputMethod?: 'text' | 'voice'
 }
 
 const EVENT_OPTIONS: Array<{ value: ''; label: string } | { value: TelemetryEventType; label: string }> = [
@@ -503,8 +504,10 @@ export default function AnalyticsDashboard() {
                                 }`}
                               >
                                 <div className={`mb-1 text-xs font-semibold ${isStudent ? 'text-blue-100' : 'text-gray-500'}`}>
-                                  {isStudent ? 'Student' : 'AI'}
-                                  {message.timestamp ? ` • ${new Date(message.timestamp).toLocaleString()}` : ''}
+                                  {isStudent
+                                    ? `Student (${message.inputMethod === 'voice' ? 'Voice' : 'Text'})`
+                                    : 'AI'}
+                                  {message.timestamp ? ` - ${new Date(message.timestamp).toLocaleString()}` : ''}
                                 </div>
                                 <div className="whitespace-pre-wrap break-words">{message.content}</div>
                               </div>

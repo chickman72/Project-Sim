@@ -5,6 +5,7 @@ import { getLogsContainer } from '../../../../lib/cosmos'
 type TranscriptRow = {
   timestamp?: string
   studentInput?: string
+  studentInputMethod?: 'text' | 'voice'
   aiOutput?: string
 }
 
@@ -12,6 +13,7 @@ type TranscriptMessage = {
   role: 'student' | 'assistant'
   content: string
   timestamp?: string
+  inputMethod?: 'text' | 'voice'
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -34,7 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const container = await getLogsContainer()
     const { resources } = await container.items.query<TranscriptRow>({
       query:
-        'SELECT c.timestamp, c.studentInput, c.aiOutput FROM c WHERE c.userId = @userId AND c.sessionId = @sessionId AND c.eventType = @eventType ORDER BY c.timestamp ASC',
+        'SELECT c.timestamp, c.studentInput, c.studentInputMethod, c.aiOutput FROM c WHERE c.userId = @userId AND c.sessionId = @sessionId AND c.eventType = @eventType ORDER BY c.timestamp ASC',
       parameters: [
         { name: '@userId', value: session.userId },
         { name: '@sessionId', value: sessionId },
@@ -45,7 +47,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const messages: TranscriptMessage[] = []
     for (const row of resources) {
       if (row.studentInput) {
-        messages.push({ role: 'student', content: row.studentInput, timestamp: row.timestamp })
+        messages.push({
+          role: 'student',
+          content: row.studentInput,
+          timestamp: row.timestamp,
+          inputMethod: row.studentInputMethod === 'voice' ? 'voice' : 'text',
+        })
       }
       if (row.aiOutput) {
         messages.push({ role: 'assistant', content: row.aiOutput, timestamp: row.timestamp })

@@ -10,6 +10,7 @@ type RubricCriterion = {
   name: string
   successCondition: string
 }
+const DEFAULT_PATIENT_VOICE = 'en-US-JennyNeural'
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const token = req.cookies?.[getSessionCookieName()]
@@ -34,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'POST') {
       // Create or update a setup
-      const { code, title, description, prompt, assignedCohortId, visibility, isPracticeMode, rubric, conversationStarters } = req.body
+      const { code, title, description, prompt, patientVoice, assignedCohortId, visibility, isPracticeMode, rubric, conversationStarters } = req.body
       if (!code || !prompt) {
         return res.status(400).json({ error: 'code and prompt are required' })
       }
@@ -89,6 +90,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             .filter((item: string) => item.length > 0)
         : []
 
+      const normalizedPatientVoice =
+        typeof patientVoice === 'string' && patientVoice.trim().length > 0
+          ? patientVoice.trim()
+          : DEFAULT_PATIENT_VOICE
+
       const container = await getSetupsContainer()
       
       // Check if setup already exists to determine action type
@@ -106,6 +112,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         title,
         description,
         prompt,
+        patientVoice: normalizedPatientVoice,
         visibility: normalizedVisibility,
         assignedCohortId: normalizedAssignedCohortId,
         isPracticeMode: Boolean(isPracticeMode),

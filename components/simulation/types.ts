@@ -13,6 +13,7 @@ export type DraftSimulation = {
   title: string
   description: string
   prompt: string
+  patientVoice: string
   visibility: 'global' | 'cohort' | 'private'
   assignedCohortId?: string
   isPracticeMode: boolean

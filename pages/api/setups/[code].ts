@@ -4,6 +4,8 @@ import { getSessionCookieName, verifySessionToken } from '../../../lib/auth'
 import { logAdminAction } from '../../../lib/audit-log'
 import { getCohortsByStudent } from '../../../lib/cohort'
 
+const DEFAULT_PATIENT_VOICE = 'en-US-JennyNeural'
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { code } = req.query
   if (typeof code !== 'string') {
@@ -54,6 +56,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           title: resource.title,
           description: resource.description,
           prompt: resource.prompt,
+          patientVoice:
+            typeof resource.patientVoice === 'string' && resource.patientVoice.trim().length > 0
+              ? resource.patientVoice.trim()
+              : DEFAULT_PATIENT_VOICE,
           conversationStarters: Array.isArray(resource.conversationStarters)
             ? resource.conversationStarters.map((item: any) => String(item || '')).filter((item: string) => item.trim().length > 0)
             : [],

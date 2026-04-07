@@ -51,6 +51,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     systemPrompt,
     history,
     userMessage,
+    inputMethod,
     model,
     scenarioId,
     promptVersion,
@@ -62,6 +63,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const isCompletionStatus = (value: unknown): value is CompletionStatus =>
     typeof value === 'string' &&
     ['in-progress', 'completed', 'abandoned', 'timeout'].includes(value)
+  const isInputMethod = (value: unknown): value is 'text' | 'voice' =>
+    value === 'text' || value === 'voice'
 
   if (!userMessage) return res.status(400).json({ error: 'userMessage required' })
 
@@ -148,6 +151,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             systemPrompt: systemPrompt ?? null,
             historyCount: Array.isArray(history) ? history.length : 0,
             userMessage,
+            inputMethod: isInputMethod(inputMethod) ? inputMethod : undefined,
             messages,
           }),
           responseJson: toAuditJson(body),
@@ -187,6 +191,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         durationMs: latencyMs,
         latencyMs,
         studentInput: userMessage,
+        studentInputMethod: isInputMethod(inputMethod) ? inputMethod : 'text',
         aiOutput: assistant,
         scenarioId: typeof scenarioId === 'string' ? scenarioId : undefined,
         promptVersion: typeof promptVersion === 'string' ? promptVersion : undefined,
@@ -198,6 +203,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           systemPrompt: systemPrompt ?? null,
           historyCount: Array.isArray(history) ? history.length : 0,
           userMessage,
+          inputMethod: isInputMethod(inputMethod) ? inputMethod : undefined,
           messages,
         }),
         responseJson: toAuditJson(data),
@@ -252,6 +258,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           systemPrompt: systemPrompt ?? null,
           historyCount: Array.isArray(history) ? history.length : 0,
           userMessage,
+          inputMethod: isInputMethod(inputMethod) ? inputMethod : undefined,
           messages,
         }),
         errorJson: toAuditJson({ message: err?.message ?? String(err), name: err?.name, stack: err?.stack }),

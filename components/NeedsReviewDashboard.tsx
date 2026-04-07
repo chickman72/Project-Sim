@@ -42,6 +42,7 @@ type TranscriptMessage = {
   role: 'student' | 'assistant'
   content: string
   timestamp?: string
+  inputMethod?: 'text' | 'voice'
 }
 
 const formatDate = (iso: string) => {

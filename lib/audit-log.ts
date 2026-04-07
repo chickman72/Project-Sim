@@ -24,6 +24,7 @@ export type SimMessage = {
   userId: string
   sessionId: string
   studentInput: string
+  studentInputMethod?: 'text' | 'voice'
   aiOutput: string
   scenarioId?: string
   promptVersion?: string
@@ -62,6 +63,7 @@ export type AuditRecord = {
   userMessage?: string
   assistant?: string
   studentInput?: string
+  studentInputMethod?: 'text' | 'voice'
   aiOutput?: string
   scenarioId?: string
   promptVersion?: string

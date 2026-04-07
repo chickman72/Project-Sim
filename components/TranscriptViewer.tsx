@@ -4,6 +4,7 @@ type TranscriptMessage = {
   role: 'student' | 'assistant'
   content: string
   timestamp?: string
+  inputMethod?: 'text' | 'voice'
 }
 
 type TranscriptViewerProps = {
@@ -57,7 +58,9 @@ export default function TranscriptViewer({
     ]
 
     messages.forEach((message) => {
-      const speaker = message.role === 'student' ? studentLabel : assistantLabel
+      const speaker = message.role === 'student'
+        ? `${studentLabel} (${message.inputMethod === 'voice' ? 'Voice' : 'Text'})`
+        : assistantLabel
       const when = message.timestamp ? new Date(message.timestamp).toLocaleString() : ''
       if (when) {
         lines.push(`${when} - ${speaker}`)
@@ -146,7 +149,9 @@ export default function TranscriptViewer({
                     }`}
                   >
                     <div className={`mb-1 text-xs font-semibold ${isStudent ? 'text-blue-100' : 'text-gray-500'}`}>
-                      {isStudent ? studentLabel : assistantLabel}
+                      {isStudent
+                        ? `${studentLabel} (${message.inputMethod === 'voice' ? 'Voice' : 'Text'})`
+                        : assistantLabel}
                     </div>
                     <div className="whitespace-pre-wrap break-words">{message.content}</div>
                   </div>

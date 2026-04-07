@@ -3,7 +3,6 @@
 import React, { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { create } from 'zustand'
-import { usePatientVoice } from '../../lib/usePatientVoice'
 import TranscriptViewer from '../../components/TranscriptViewer'
 import SimulationHeader from '../../components/simulation/SimulationHeader'
 import SimulationSidebar from '../../components/simulation/SimulationSidebar'
@@ -33,6 +32,7 @@ type TranscriptMessage = {
   role: 'student' | 'assistant'
   content: string
   timestamp?: string
+  inputMethod?: 'text' | 'voice'
 }
 
 type EvaluationCriterion = {
@@ -76,6 +76,8 @@ const formatDuration = (seconds?: number) => {
   return `${mins}m ${secs}s`
 }
 
+const DEFAULT_PATIENT_VOICE = 'en-US-JennyNeural'
+
 export default function Page() {
   const router = useRouter()
   const systemPrompt = useStore((s) => s.systemPrompt)
@@ -83,6 +85,7 @@ export default function Page() {
   const messages = useStore((s) => s.messages)
   const addMessage = useStore((s) => s.addMessage)
   const clear = useStore((s) => s.clear)
+  const messagesRef = useRef<ChatMessage[]>(messages)
 
   const [userId, setUserId] = useState<string | null>(null)
   const [userName, setUserName] = useState<string | null>(null)
@@ -100,6 +103,7 @@ export default function Page() {
   const [activeSimulationCode, setActiveSimulationCode] = useState('')
   const [activeSimulationTitle, setActiveSimulationTitle] = useState('')
   const [activeSimulationDescription, setActiveSimulationDescription] = useState('')
+  const [activePatientVoice, setActivePatientVoice] = useState(DEFAULT_PATIENT_VOICE)
   const [activeSimulationIsPracticeMode, setActiveSimulationIsPracticeMode] = useState(false)
   const [activeConversationStarters, setActiveConversationStarters] = useState<string[]>([])
   const [simulationStartedAt, setSimulationStartedAt] = useState<number | null>(null)
@@ -110,6 +114,8 @@ export default function Page() {
 
   const [voiceMode, setVoiceMode] = useState(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
+  const [isListening, setIsListening] = useState(false)
+  const [isAiSpeaking, setIsAiSpeaking] = useState(false)
   const [isConfirmOpen, setIsConfirmOpen] = useState(false)
   const [isNavWarningOpen, setIsNavWarningOpen] = useState(false)
   const [isCompletingSession, setIsCompletingSession] = useState(false)
@@ -127,23 +133,11 @@ export default function Page() {
   const [feedbackLoading, setFeedbackLoading] = useState(false)
   const [feedbackError, setFeedbackError] = useState<string | null>(null)
 
-  const micStreamRef = useRef<MediaStream | null>(null)
-  const micContextRef = useRef<AudioContext | null>(null)
-  const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
-  const micProcessorRef = useRef<ScriptProcessorNode | null>(null)
-  const micWorkletRef = useRef<AudioWorkletNode | null>(null)
-  const micWorkletUrlRef = useRef<string | null>(null)
-  const micGainRef = useRef<GainNode | null>(null)
-
-  const {
-    connect,
-    disconnect,
-    sendAudio,
-    isSpeaking,
-    isPatientSpeaking,
-  } = usePatientVoice({
-    systemPrompt,
-  })
+  const speechRecognitionRef = useRef<any>(null)
+  const transcriptBufferRef = useRef('')
+  const ignoreTranscriptRef = useRef(false)
+  const activeAudioRef = useRef<HTMLAudioElement | null>(null)
+  const activeAudioUrlRef = useRef<string | null>(null)
 
   const fetchHubData = React.useCallback(async () => {
     if (!userId || userRole !== 'Student') return
@@ -214,40 +208,161 @@ export default function Page() {
     fetchHubData()
   }, [fetchHubData])
 
-  const stopMic = React.useCallback(() => {
-    if (micProcessorRef.current) {
-      micProcessorRef.current.onaudioprocess = null
-      micProcessorRef.current.disconnect()
-      micProcessorRef.current = null
+  React.useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  const stopTts = React.useCallback(() => {
+    if (activeAudioRef.current) {
+      activeAudioRef.current.pause()
+      activeAudioRef.current.onended = null
+      activeAudioRef.current.onerror = null
+      activeAudioRef.current = null
     }
-    if (micWorkletRef.current) {
-      micWorkletRef.current.port.onmessage = null
-      micWorkletRef.current.disconnect()
-      micWorkletRef.current = null
+    if (activeAudioUrlRef.current) {
+      URL.revokeObjectURL(activeAudioUrlRef.current)
+      activeAudioUrlRef.current = null
     }
-    micSourceRef.current?.disconnect()
-    micSourceRef.current = null
-    micGainRef.current?.disconnect()
-    micGainRef.current = null
-    micStreamRef.current?.getTracks().forEach((track: MediaStreamTrack) => track.stop())
-    micStreamRef.current = null
-    if (micContextRef.current) {
-      micContextRef.current.close()
-      micContextRef.current = null
+    setIsAiSpeaking(false)
+  }, [])
+
+  const stopListening = React.useCallback((abort = false) => {
+    const recognition = speechRecognitionRef.current
+    if (!recognition) {
+      setIsListening(false)
+      setVoiceMode(false)
+      return
     }
-    if (micWorkletUrlRef.current) {
-      URL.revokeObjectURL(micWorkletUrlRef.current)
-      micWorkletUrlRef.current = null
+    if (abort && typeof recognition.abort === 'function') {
+      recognition.abort()
+    } else {
+      recognition.stop()
     }
   }, [])
+
+  const speakAssistantResponse = React.useCallback(
+    async (text: string) => {
+      const message = text.trim()
+      if (!message) return
+
+      stopTts()
+      setIsAiSpeaking(true)
+      try {
+        const resp = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: message,
+            voice: activePatientVoice || DEFAULT_PATIENT_VOICE,
+          }),
+        })
+        if (!resp.ok) {
+          const detail = await resp.text()
+          throw new Error(detail || `TTS request failed (${resp.status})`)
+        }
+
+        const audioBlob = await resp.blob()
+        const audioUrl = URL.createObjectURL(audioBlob)
+        const audio = new Audio(audioUrl)
+        activeAudioRef.current = audio
+        activeAudioUrlRef.current = audioUrl
+
+        audio.onended = () => {
+          if (activeAudioUrlRef.current) {
+            URL.revokeObjectURL(activeAudioUrlRef.current)
+            activeAudioUrlRef.current = null
+          }
+          activeAudioRef.current = null
+          setIsAiSpeaking(false)
+        }
+        audio.onerror = () => {
+          if (activeAudioUrlRef.current) {
+            URL.revokeObjectURL(activeAudioUrlRef.current)
+            activeAudioUrlRef.current = null
+          }
+          activeAudioRef.current = null
+          setIsAiSpeaking(false)
+        }
+
+        await audio.play()
+      } catch (err: any) {
+        setIsAiSpeaking(false)
+        setVoiceError(err?.message || 'Failed to play synthesized speech')
+      }
+    },
+    [activePatientVoice, stopTts],
+  )
+
+  const handleSendMessage = React.useCallback(
+    async (
+      text: string,
+      opts?: {
+        userMessageAlreadyAppended?: boolean
+        messageHistory?: ChatMessage[]
+        inputMethod?: 'text' | 'voice'
+      },
+    ) => {
+      const content = text.trim()
+      if (!content) return
+      if (loading) return
+
+      setError(null)
+      const historyToSend = opts?.messageHistory ?? messagesRef.current.slice()
+      if (!opts?.userMessageAlreadyAppended) {
+        addMessage({ role: 'user', content })
+      }
+      setLoading(true)
+
+      try {
+        const resp = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemPrompt,
+            history: historyToSend,
+            userMessage: content,
+            inputMethod: opts?.inputMethod || 'text',
+            scenarioId: activeSimulationCode || undefined,
+            completionStatus: 'in-progress',
+            sessionTags: ['Student'],
+          }),
+        })
+
+        const textResp = await resp.text()
+        let data: any = null
+        try { data = textResp ? JSON.parse(textResp) : null } catch { data = { raw: textResp } }
+        if (!resp.ok) {
+          const detail = data?.details ?? data?.error ?? data?.raw ?? `Status ${resp.status}`
+          throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
+        }
+
+        const assistantResponse =
+          data?.assistant ||
+          data?.choices?.[0]?.message?.content ||
+          ''
+        if (!assistantResponse) {
+          throw new Error('Invalid response from API')
+        }
+
+        addMessage({ role: 'assistant', content: assistantResponse })
+        void speakAssistantResponse(assistantResponse)
+      } catch (err: any) {
+        setError(err?.message || 'Request failed')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [loading, addMessage, systemPrompt, activeSimulationCode, speakAssistantResponse],
+  )
 
   const logout = async () => {
     setError(null)
     try {
       await fetch('/api/auth/logout', { method: 'POST' })
     } finally {
-      stopMic()
-      disconnect()
+      ignoreTranscriptRef.current = true
+      stopListening(true)
+      stopTts()
       setUserId(null)
       setUserName(null)
       setUserEmail(null)
@@ -257,6 +372,7 @@ export default function Page() {
       setActiveSimulationTitle('')
       setActiveSimulationDescription('')
       setActiveSimulationIsPracticeMode(false)
+      setActivePatientVoice(DEFAULT_PATIENT_VOICE)
       setActiveConversationStarters([])
       setSimulationStartedAt(null)
       setVoiceMode(false)
@@ -312,6 +428,11 @@ export default function Page() {
       setActiveSimulationCode(assignment.code)
       setActiveSimulationTitle(setup.title || assignment.title || 'Simulation')
       setActiveSimulationDescription(setup.description || assignment.description || '')
+      setActivePatientVoice(
+        typeof setup.patientVoice === 'string' && setup.patientVoice.trim().length > 0
+          ? setup.patientVoice.trim()
+          : DEFAULT_PATIENT_VOICE,
+      )
       setActiveSimulationIsPracticeMode(Boolean(assignment.isPracticeMode))
       setActiveConversationStarters(
         Array.isArray(setup.conversationStarters)
@@ -345,8 +466,9 @@ export default function Page() {
         throw new Error(detail || 'Failed to complete simulation')
       }
 
-      stopMic()
-      disconnect()
+      ignoreTranscriptRef.current = true
+      stopListening(true)
+      stopTts()
       setVoiceMode(false)
       clear()
       setInput('')
@@ -355,6 +477,7 @@ export default function Page() {
       setActiveSimulationCode('')
       setActiveSimulationTitle('')
       setActiveSimulationDescription('')
+      setActivePatientVoice(DEFAULT_PATIENT_VOICE)
       setActiveSimulationIsPracticeMode(false)
       setActiveConversationStarters([])
       setSimulationStartedAt(null)
@@ -367,10 +490,12 @@ export default function Page() {
   }
 
   const returnToHub = async () => {
-    stopMic()
-    disconnect()
+    ignoreTranscriptRef.current = true
+    stopListening(true)
+    stopTts()
     setVoiceMode(false)
     setView('hub')
+    setActivePatientVoice(DEFAULT_PATIENT_VOICE)
     setActiveSimulationIsPracticeMode(false)
     setActiveConversationStarters([])
     clear()
@@ -386,150 +511,94 @@ export default function Page() {
     setInput(starter)
   }
 
-  const send = async () => {
-    if (!input.trim()) return
-    setError(null)
-    const userMsg: ChatMessage = { role: 'user', content: input }
-    const historyToSend = messages.slice()
-    addMessage(userMsg)
+  const send = () => {
+    const content = input.trim()
+    if (!content) return
     setInput('')
-    setLoading(true)
-
-    try {
-      const resp = await fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          systemPrompt,
-          history: historyToSend,
-          userMessage: userMsg.content,
-          scenarioId: activeSimulationCode || undefined,
-          completionStatus: 'in-progress',
-          sessionTags: ['Student'],
-        }),
-      })
-
-      const text = await resp.text()
-      let data: any = null
-      try { data = text ? JSON.parse(text) : null } catch { data = { raw: text } }
-      if (!resp.ok) {
-        const detail = data?.details ?? data?.error ?? data?.raw ?? `Status ${resp.status}`
-        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail))
-      }
-
-      if (data?.assistant) {
-        addMessage({ role: 'assistant', content: data.assistant })
-      } else if (data?.choices?.[0]?.message?.content) {
-        addMessage({ role: 'assistant', content: data.choices[0].message.content })
-      } else {
-        throw new Error('Invalid response from API')
-      }
-    } catch (err: any) {
-      setError(err?.message || 'Request failed')
-    } finally {
-      setLoading(false)
-    }
+    void handleSendMessage(content, { inputMethod: 'text' })
   }
 
-  const startMic = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    micStreamRef.current = stream
-
-    const audioContext: AudioContext = new AudioContext({ sampleRate: 24000 })
-    micContextRef.current = audioContext
-    if (audioContext.state === 'suspended') {
-      await audioContext.resume()
-    }
-
-    const source = audioContext.createMediaStreamSource(stream)
-    micSourceRef.current = source
-
-    const gain = (audioContext as any).createGain()
-    gain.gain.value = 0
-    micGainRef.current = gain
-
-    const useWorklet = 'audioWorklet' in audioContext
-    if (useWorklet) {
-      const workletCode = `
-        class MicProcessor extends AudioWorkletProcessor {
-          process(inputs) {
-            const input = inputs[0]
-            if (input && input[0]) {
-              this.port.postMessage(input[0])
-            }
-            return true
-          }
-        }
-        registerProcessor('mic-processor', MicProcessor)
-      `
-      const blob = new Blob([workletCode], { type: 'application/javascript' })
-      const url = URL.createObjectURL(blob)
-      micWorkletUrlRef.current = url
-      await audioContext.audioWorklet.addModule(url)
-      const worklet = new AudioWorkletNode(audioContext, 'mic-processor')
-      micWorkletRef.current = worklet
-      worklet.port.onmessage = (event) => {
-        const inputData = event.data as Float32Array
-        const pcm = new Int16Array(inputData.length)
-        for (let i = 0; i < inputData.length; i += 1) {
-          const s = Math.max(-1, Math.min(1, inputData[i]))
-          pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff
-        }
-        sendAudio(pcm)
-      }
-      source.connect(worklet)
-      ;(worklet as any).connect(gain)
-      ;(gain as any).connect((audioContext as any).destination)
-      return
-    }
-
-    const processor = (audioContext as any).createScriptProcessor(1024, 1, 1)
-    micProcessorRef.current = processor
-    processor.onaudioprocess = (event: any) => {
-      const inputData = event.inputBuffer.getChannelData(0)
-      const pcm = new Int16Array(inputData.length)
-      for (let i = 0; i < inputData.length; i += 1) {
-        const s = Math.max(-1, Math.min(1, inputData[i]))
-        pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff
-      }
-      sendAudio(pcm)
-    }
-
-    source.connect(processor)
-    processor.connect(gain)
-    ;(gain as any).connect((audioContext as any).destination)
-  }
-
-  const toggleVoiceMode = async () => {
-    if (voiceMode) {
-      stopMic()
-      disconnect()
+  const startSpeechRecognition = () => {
+    const SpeechRecognitionCtor =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!SpeechRecognitionCtor) {
+      setVoiceError('Speech recognition is not supported in this browser')
       setVoiceMode(false)
+      setIsListening(false)
       return
     }
 
-    try {
-      setVoiceError(null)
-      if (!systemPrompt) {
-        throw new Error('Scenario prompt not found')
-      }
-      await connect(systemPrompt)
-      await startMic()
+    transcriptBufferRef.current = ''
+    ignoreTranscriptRef.current = false
+
+    const recognition = new SpeechRecognitionCtor()
+    speechRecognitionRef.current = recognition
+    recognition.lang = 'en-US'
+    recognition.continuous = false
+    recognition.interimResults = true
+
+    recognition.onstart = () => {
+      setIsListening(true)
       setVoiceMode(true)
-    } catch (err: any) {
-      stopMic()
-      disconnect()
-      setVoiceMode(false)
-      setVoiceError(err?.message || 'Failed to start microphone')
     }
+
+    recognition.onresult = (event: any) => {
+      let finalized = ''
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i]
+        if (result.isFinal) {
+          finalized += String(result[0]?.transcript || '')
+        }
+      }
+      if (finalized) {
+        transcriptBufferRef.current = `${transcriptBufferRef.current} ${finalized}`.trim()
+      }
+    }
+
+    recognition.onerror = (event: any) => {
+      if (event?.error && event.error !== 'no-speech' && event.error !== 'aborted') {
+        setVoiceError(`Microphone error: ${event.error}`)
+      }
+    }
+
+    recognition.onend = () => {
+      setIsListening(false)
+      setVoiceMode(false)
+      const transcript = transcriptBufferRef.current.trim()
+      transcriptBufferRef.current = ''
+      speechRecognitionRef.current = null
+      if (!transcript || ignoreTranscriptRef.current) {
+        ignoreTranscriptRef.current = false
+        return
+      }
+      const historyToSend = messagesRef.current.slice()
+      addMessage({ role: 'user', content: transcript })
+      void handleSendMessage(transcript, {
+        userMessageAlreadyAppended: true,
+        messageHistory: historyToSend,
+        inputMethod: 'voice',
+      })
+    }
+
+    recognition.start()
+  }
+
+  const toggleVoiceMode = () => {
+    setVoiceError(null)
+    if (isListening) {
+      stopListening(false)
+      return
+    }
+    startSpeechRecognition()
   }
 
   React.useEffect(() => {
     return () => {
-      stopMic()
-      disconnect()
+      ignoreTranscriptRef.current = true
+      stopListening(true)
+      stopTts()
     }
-  }, [stopMic, disconnect])
+  }, [stopListening, stopTts])
 
   const openTranscript = async (session: CompletedScenario) => {
     setTranscriptOpen(true)
@@ -659,8 +728,8 @@ export default function Page() {
               showVoiceButton={true}
               voiceMode={voiceMode}
               onToggleVoiceMode={toggleVoiceMode}
-              isSpeaking={isSpeaking}
-              isPatientSpeaking={isPatientSpeaking}
+              isListening={isListening}
+              isAiSpeaking={isAiSpeaking}
             />
           </div>
         </div>
