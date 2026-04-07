@@ -65,8 +65,8 @@ export default function SimulationChatInterface({
         <div className="mb-3">
           <div className="inline-flex rounded-lg border border-gray-300 bg-gray-100 p-1">
             {[
-              { key: 'text' as const, label: 'Keyboard' },
-              { key: 'voice' as const, label: 'Microphone' },
+              { key: 'text' as const, label: 'Text' },
+              { key: 'voice' as const, label: 'Speak' },
               { key: 'avatar' as const, label: 'Video' },
             ].map((mode) => (
               <button
@@ -131,13 +131,11 @@ export default function SimulationChatInterface({
               }
             }}
           />
-          {showVoiceButton && onToggleVoiceMode && (
+          {showVoiceButton && onToggleVoiceMode && interactionMode === 'voice' && (
             <button
               className={`px-4 py-2 rounded-md border transition-colors ${
                 isListening
                   ? 'bg-red-600 border-red-700 text-white animate-pulse'
-                  : interactionMode === 'voice'
-                    ? 'bg-red-600 border-red-700 text-white font-semibold shadow-sm'
                   : voiceMode
                     ? 'bg-red-100 border-red-300 text-red-800'
                     : 'bg-white text-gray-800'
@@ -145,12 +143,14 @@ export default function SimulationChatInterface({
               onClick={onToggleVoiceMode}
               type="button"
             >
-              {isListening ? 'Listening...' : interactionMode === 'voice' ? 'Hold to Speak' : 'Speak'}
+              {isListening ? 'Listening...' : 'Hold to Speak'}
             </button>
           )}
-          <button className="px-4 py-2 bg-green-600 text-white rounded-md" onClick={onSend} disabled={loading}>
-            {loading ? 'Sending...' : 'Send'}
-          </button>
+          {interactionMode !== 'voice' && (
+            <button className="px-4 py-2 bg-green-600 text-white rounded-md" onClick={onSend} disabled={loading}>
+              {loading ? 'Sending...' : 'Send'}
+            </button>
+          )}
         </div>
         {showVoiceButton && (isListening || loading || isAiSpeaking) && (
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
