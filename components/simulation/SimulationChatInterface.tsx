@@ -20,6 +20,8 @@ type Props = {
   onToggleVoiceMode?: () => void
   isListening?: boolean
   isAiSpeaking?: boolean
+  interactionMode?: 'text' | 'voice' | 'avatar'
+  onInteractionModeChange?: (mode: 'text' | 'voice' | 'avatar') => void
 }
 
 export default function SimulationChatInterface({
@@ -41,6 +43,8 @@ export default function SimulationChatInterface({
   onToggleVoiceMode,
   isListening = false,
   isAiSpeaking = false,
+  interactionMode = 'text',
+  onInteractionModeChange,
 }: Props) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col">
@@ -56,6 +60,31 @@ export default function SimulationChatInterface({
           </button>
         )}
       </div>
+
+      {!isPreview && onInteractionModeChange && (
+        <div className="mb-3">
+          <div className="inline-flex rounded-lg border border-gray-300 bg-gray-100 p-1">
+            {[
+              { key: 'text' as const, label: 'Keyboard' },
+              { key: 'voice' as const, label: 'Microphone' },
+              { key: 'avatar' as const, label: 'Video' },
+            ].map((mode) => (
+              <button
+                key={mode.key}
+                type="button"
+                onClick={() => onInteractionModeChange(mode.key)}
+                className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+                  interactionMode === mode.key
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isPreview && onResetPreview && (
         <div className="mb-2">
@@ -88,7 +117,13 @@ export default function SimulationChatInterface({
             value={input}
             onChange={(e) => onInputChange(e.target.value)}
             className="flex-1 p-2 border rounded-md"
-            placeholder="Type a message..."
+            placeholder={
+              interactionMode === 'voice'
+                ? 'Type or use microphone for voice chat...'
+                : interactionMode === 'avatar'
+                  ? 'Type a message for avatar response...'
+                  : 'Type a message...'
+            }
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
@@ -101,6 +136,8 @@ export default function SimulationChatInterface({
               className={`px-4 py-2 rounded-md border transition-colors ${
                 isListening
                   ? 'bg-red-600 border-red-700 text-white animate-pulse'
+                  : interactionMode === 'voice'
+                    ? 'bg-red-600 border-red-700 text-white font-semibold shadow-sm'
                   : voiceMode
                     ? 'bg-red-100 border-red-300 text-red-800'
                     : 'bg-white text-gray-800'
@@ -108,7 +145,7 @@ export default function SimulationChatInterface({
               onClick={onToggleVoiceMode}
               type="button"
             >
-              {isListening ? 'Listening...' : 'Speak'}
+              {isListening ? 'Listening...' : interactionMode === 'voice' ? 'Hold to Speak' : 'Speak'}
             </button>
           )}
           <button className="px-4 py-2 bg-green-600 text-white rounded-md" onClick={onSend} disabled={loading}>

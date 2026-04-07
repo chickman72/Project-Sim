@@ -7,6 +7,7 @@ import TranscriptViewer from '../../components/TranscriptViewer'
 import SimulationHeader from '../../components/simulation/SimulationHeader'
 import SimulationSidebar from '../../components/simulation/SimulationSidebar'
 import SimulationChatInterface from '../../components/simulation/SimulationChatInterface'
+import AvatarPlayer, { type AvatarPlayerHandle } from '../../components/simulation/AvatarPlayer'
 import type { ChatMessage } from '../../components/simulation/types'
 
 type Assignment = {
@@ -111,6 +112,7 @@ export default function Page() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [interactionMode, setInteractionMode] = useState<'text' | 'voice' | 'avatar'>('text')
 
   const [voiceMode, setVoiceMode] = useState(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
@@ -136,8 +138,9 @@ export default function Page() {
   const speechRecognitionRef = useRef<any>(null)
   const transcriptBufferRef = useRef('')
   const ignoreTranscriptRef = useRef(false)
-  const activeAudioRef = useRef<HTMLAudioElement | null>(null)
-  const activeAudioUrlRef = useRef<string | null>(null)
+  const avatarPlayerRef = useRef<AvatarPlayerHandle | null>(null)
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
+  const ttsAudioUrlRef = useRef<string | null>(null)
 
   const fetchHubData = React.useCallback(async () => {
     if (!userId || userRole !== 'Student') return
@@ -213,15 +216,15 @@ export default function Page() {
   }, [messages])
 
   const stopTts = React.useCallback(() => {
-    if (activeAudioRef.current) {
-      activeAudioRef.current.pause()
-      activeAudioRef.current.onended = null
-      activeAudioRef.current.onerror = null
-      activeAudioRef.current = null
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.pause()
+      ttsAudioRef.current.onended = null
+      ttsAudioRef.current.onerror = null
+      ttsAudioRef.current = null
     }
-    if (activeAudioUrlRef.current) {
-      URL.revokeObjectURL(activeAudioUrlRef.current)
-      activeAudioUrlRef.current = null
+    if (ttsAudioUrlRef.current) {
+      URL.revokeObjectURL(ttsAudioUrlRef.current)
+      ttsAudioUrlRef.current = null
     }
     setIsAiSpeaking(false)
   }, [])
@@ -240,7 +243,24 @@ export default function Page() {
     }
   }, [])
 
-  const speakAssistantResponse = React.useCallback(
+  const speakAssistantWithAvatar = React.useCallback(
+    async (text: string) => {
+      const message = text.trim()
+      if (!message) return
+
+      try {
+        if (!avatarPlayerRef.current) {
+          throw new Error('Avatar player is not initialized')
+        }
+        await avatarPlayerRef.current.speak(message)
+      } catch (err: any) {
+        setVoiceError(err?.message || 'Failed to speak with avatar')
+      }
+    },
+    [],
+  )
+
+  const speakAssistantWithVoice = React.useCallback(
     async (text: string) => {
       const message = text.trim()
       if (!message) return
@@ -261,33 +281,36 @@ export default function Page() {
           throw new Error(detail || `TTS request failed (${resp.status})`)
         }
 
-        const audioBlob = await resp.blob()
-        const audioUrl = URL.createObjectURL(audioBlob)
-        const audio = new Audio(audioUrl)
-        activeAudioRef.current = audio
-        activeAudioUrlRef.current = audioUrl
+        const blob = await resp.blob()
+        const url = URL.createObjectURL(blob)
+        const audio = new Audio(url)
+        ttsAudioRef.current = audio
+        ttsAudioUrlRef.current = url
 
-        audio.onended = () => {
-          if (activeAudioUrlRef.current) {
-            URL.revokeObjectURL(activeAudioUrlRef.current)
-            activeAudioUrlRef.current = null
+        await new Promise<void>((resolve, reject) => {
+          audio.onended = () => {
+            if (ttsAudioUrlRef.current) {
+              URL.revokeObjectURL(ttsAudioUrlRef.current)
+              ttsAudioUrlRef.current = null
+            }
+            ttsAudioRef.current = null
+            setIsAiSpeaking(false)
+            resolve()
           }
-          activeAudioRef.current = null
-          setIsAiSpeaking(false)
-        }
-        audio.onerror = () => {
-          if (activeAudioUrlRef.current) {
-            URL.revokeObjectURL(activeAudioUrlRef.current)
-            activeAudioUrlRef.current = null
+          audio.onerror = () => {
+            if (ttsAudioUrlRef.current) {
+              URL.revokeObjectURL(ttsAudioUrlRef.current)
+              ttsAudioUrlRef.current = null
+            }
+            ttsAudioRef.current = null
+            setIsAiSpeaking(false)
+            reject(new Error('Failed to play synthesized speech'))
           }
-          activeAudioRef.current = null
-          setIsAiSpeaking(false)
-        }
-
-        await audio.play()
+          void audio.play().catch((err) => reject(err))
+        })
       } catch (err: any) {
         setIsAiSpeaking(false)
-        setVoiceError(err?.message || 'Failed to play synthesized speech')
+        setVoiceError(err?.message || 'Failed to speak response audio')
       }
     },
     [activePatientVoice, stopTts],
@@ -300,12 +323,14 @@ export default function Page() {
         userMessageAlreadyAppended?: boolean
         messageHistory?: ChatMessage[]
         inputMethod?: 'text' | 'voice'
+        responseMode?: 'text' | 'voice' | 'avatar'
       },
     ) => {
       const content = text.trim()
       if (!content) return
       if (loading) return
 
+      const responseMode = opts?.responseMode || interactionMode
       setError(null)
       const historyToSend = opts?.messageHistory ?? messagesRef.current.slice()
       if (!opts?.userMessageAlreadyAppended) {
@@ -345,14 +370,18 @@ export default function Page() {
         }
 
         addMessage({ role: 'assistant', content: assistantResponse })
-        void speakAssistantResponse(assistantResponse)
+        if (responseMode === 'voice') {
+          void speakAssistantWithVoice(assistantResponse)
+        } else if (responseMode === 'avatar') {
+          void speakAssistantWithAvatar(assistantResponse)
+        }
       } catch (err: any) {
         setError(err?.message || 'Request failed')
       } finally {
         setLoading(false)
       }
     },
-    [loading, addMessage, systemPrompt, activeSimulationCode, speakAssistantResponse],
+    [loading, addMessage, systemPrompt, activeSimulationCode, interactionMode, speakAssistantWithAvatar, speakAssistantWithVoice],
   )
 
   const logout = async () => {
@@ -375,6 +404,7 @@ export default function Page() {
       setActivePatientVoice(DEFAULT_PATIENT_VOICE)
       setActiveConversationStarters([])
       setSimulationStartedAt(null)
+      setInteractionMode('text')
       setVoiceMode(false)
       setVoiceError(null)
       clear()
@@ -440,6 +470,7 @@ export default function Page() {
           : []
       )
       setSimulationStartedAt(Date.now())
+      setInteractionMode('text')
       setView('chat')
     } catch (err: any) {
       setError(err?.message || 'Failed to start simulation')
@@ -481,6 +512,7 @@ export default function Page() {
       setActiveSimulationIsPracticeMode(false)
       setActiveConversationStarters([])
       setSimulationStartedAt(null)
+      setInteractionMode('text')
       await fetchHubData()
     } catch (err: any) {
       setError(err?.message || 'Failed to complete simulation')
@@ -498,6 +530,7 @@ export default function Page() {
     setActivePatientVoice(DEFAULT_PATIENT_VOICE)
     setActiveSimulationIsPracticeMode(false)
     setActiveConversationStarters([])
+    setInteractionMode('text')
     clear()
     setInput('')
     await fetchHubData()
@@ -515,7 +548,10 @@ export default function Page() {
     const content = input.trim()
     if (!content) return
     setInput('')
-    void handleSendMessage(content, { inputMethod: 'text' })
+    void handleSendMessage(content, {
+      inputMethod: 'text',
+      responseMode: interactionMode,
+    })
   }
 
   const startSpeechRecognition = () => {
@@ -577,6 +613,7 @@ export default function Page() {
         userMessageAlreadyAppended: true,
         messageHistory: historyToSend,
         inputMethod: 'voice',
+        responseMode: interactionMode,
       })
     }
 
@@ -591,6 +628,12 @@ export default function Page() {
     }
     startSpeechRecognition()
   }
+
+  React.useEffect(() => {
+    if (interactionMode !== 'voice' && isListening) {
+      stopListening(false)
+    }
+  }, [interactionMode, isListening, stopListening])
 
   React.useEffect(() => {
     return () => {
@@ -713,24 +756,45 @@ export default function Page() {
           </div>
 
           <div className="lg:col-span-2">
-            <SimulationChatInterface
-              title="Simulation Chat"
-              messages={messages}
-              input={input}
-              loading={loading}
-              error={error}
-              voiceError={voiceError}
-              onInputChange={setInput}
-              onSend={send}
-              onEndSession={() => setIsConfirmOpen(true)}
-              endSessionLabel={activeSimulationIsPracticeMode ? 'End Practice Session' : 'Complete Simulation'}
-              endSessionClassName={activeSimulationIsPracticeMode ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}
-              showVoiceButton={true}
-              voiceMode={voiceMode}
-              onToggleVoiceMode={toggleVoiceMode}
-              isListening={isListening}
-              isAiSpeaking={isAiSpeaking}
-            />
+            <div className="space-y-4">
+              {interactionMode === 'avatar' && (
+                <AvatarPlayer
+                  ref={avatarPlayerRef}
+                  voice={activePatientVoice}
+                  avatarCharacter="lisa"
+                  avatarStyle="casual-sitting"
+                  onSpeakStart={() => setIsAiSpeaking(true)}
+                  onSpeakEnd={() => setIsAiSpeaking(false)}
+                  onError={(message) => {
+                    setIsAiSpeaking(false)
+                    setVoiceError(message)
+                  }}
+                />
+              )}
+              <SimulationChatInterface
+                title="Simulation Chat"
+                messages={messages}
+                input={input}
+                loading={loading}
+                error={error}
+                voiceError={voiceError}
+                onInputChange={setInput}
+                onSend={send}
+                onEndSession={() => setIsConfirmOpen(true)}
+                endSessionLabel={activeSimulationIsPracticeMode ? 'End Practice Session' : 'Complete Simulation'}
+                endSessionClassName={activeSimulationIsPracticeMode ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}
+                showVoiceButton={true}
+                voiceMode={voiceMode}
+                onToggleVoiceMode={toggleVoiceMode}
+                isListening={isListening}
+                isAiSpeaking={isAiSpeaking}
+                interactionMode={interactionMode}
+                onInteractionModeChange={(mode) => {
+                  setInteractionMode(mode)
+                  setVoiceError(null)
+                }}
+              />
+            </div>
           </div>
         </div>
         {isNavWarningOpen && (
