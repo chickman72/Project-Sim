@@ -5,11 +5,10 @@ import { useRouter } from 'next/navigation'
 import { create } from 'zustand'
 import { usePatientVoice } from '../../lib/usePatientVoice'
 import TranscriptViewer from '../../components/TranscriptViewer'
-
-type Message = {
-  role: 'user' | 'assistant' | 'system'
-  content: string
-}
+import SimulationHeader from '../../components/simulation/SimulationHeader'
+import SimulationSidebar from '../../components/simulation/SimulationSidebar'
+import SimulationChatInterface from '../../components/simulation/SimulationChatInterface'
+import type { ChatMessage } from '../../components/simulation/types'
 
 type Assignment = {
   id: string
@@ -45,9 +44,9 @@ type EvaluationCriterion = {
 
 type Store = {
   systemPrompt: string
-  messages: Message[]
+  messages: ChatMessage[]
   setSystemPrompt: (s: string) => void
-  addMessage: (m: Message) => void
+  addMessage: (m: ChatMessage) => void
   clear: () => void
 }
 
@@ -135,7 +134,6 @@ export default function Page() {
   const micWorkletRef = useRef<AudioWorkletNode | null>(null)
   const micWorkletUrlRef = useRef<string | null>(null)
   const micGainRef = useRef<GainNode | null>(null)
-  const chatInputRef = useRef<HTMLInputElement | null>(null)
 
   const {
     connect,
@@ -386,13 +384,12 @@ export default function Page() {
 
   const applyConversationStarter = (starter: string) => {
     setInput(starter)
-    chatInputRef.current?.focus()
   }
 
   const send = async () => {
     if (!input.trim()) return
     setError(null)
-    const userMsg: Message = { role: 'user', content: input }
+    const userMsg: ChatMessage = { role: 'user', content: input }
     const historyToSend = messages.slice()
     addMessage(userMsg)
     setInput('')
@@ -631,32 +628,14 @@ export default function Page() {
         <div className="max-w-7xl mx-auto h-[calc(100vh-3rem)] grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col justify-between">
             <div>
-              <h2 className="font-semibold text-gray-900 mb-2">Simulation Details</h2>
-              <div className="space-y-2 text-sm">
-                <div>
-                  <p className="font-medium text-gray-800">{activeSimulationTitle}</p>
-                  <p className="text-gray-500 font-mono">{activeSimulationCode}</p>
-                </div>
-                {activeSimulationDescription && <p className="text-gray-600 pt-2 whitespace-pre-wrap">{activeSimulationDescription}</p>}
-                {activeConversationStarters.length > 0 && (
-                  <div className="pt-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">Suggested Starters</p>
-                    <div className="flex flex-wrap gap-2">
-                      {activeConversationStarters.map((starter, idx) => (
-                        <button
-                          key={`starter-${idx}`}
-                          type="button"
-                          onClick={() => applyConversationStarter(starter)}
-                          className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs text-blue-700 hover:bg-blue-100 text-left"
-                          title={starter}
-                        >
-                          {starter}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <SimulationHeader
+                title={activeSimulationTitle}
+                description={activeSimulationDescription}
+              />
+              <SimulationSidebar
+                conversationStarters={activeConversationStarters}
+                onSelectStarter={applyConversationStarter}
+              />
             </div>
 
             <div className="mt-4 space-y-2">
@@ -664,68 +643,27 @@ export default function Page() {
             </div>
           </div>
 
-          <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col">
-            <div className="mb-2 flex items-center justify-between gap-3">
-              <h2 className="font-semibold text-gray-900">Simulation Chat</h2>
-              <button
-                type="button"
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-md text-sm font-semibold text-white shadow-sm ${
-                  activeSimulationIsPracticeMode ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
-                }`}
-                onClick={() => setIsConfirmOpen(true)}
-              >
-                <span aria-hidden="true">✓</span>
-                {activeSimulationIsPracticeMode ? 'End Practice Session' : 'Complete Simulation'}
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-3 border rounded-md bg-gray-50">
-              {messages.length === 0 && <div className="text-sm text-gray-500">No messages yet. Start by sending a message.</div>}
-              {messages.map((m: Message, i: number) => (
-                <div key={i} className={`mb-3 ${m.role === 'assistant' ? 'text-left' : 'text-right'}`}>
-                  <div className={`inline-block max-w-[90%] px-3 py-2 rounded-xl ${m.role === 'assistant' ? 'bg-white border border-gray-200 text-gray-900' : 'bg-blue-600 text-white'}`}>
-                    <div className="text-sm whitespace-pre-wrap">{m.content}</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-3">
-              {error && <div className="text-red-600 mb-2 text-sm">{error}</div>}
-              {voiceError && <div className="text-red-600 mb-2 text-sm">{voiceError}</div>}
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  ref={chatInputRef}
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  className="flex-1 p-2 border rounded-md"
-                  placeholder="Type a message..."
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } }}
-                />
-                <button
-                  className={`px-4 py-2 rounded-md border ${voiceMode ? 'bg-red-600 text-white' : 'bg-white text-gray-800'}`}
-                  onClick={toggleVoiceMode}
-                  type="button"
-                >
-                  Speak
-                </button>
-                <button className="px-4 py-2 bg-green-600 text-white rounded-md" onClick={send} disabled={loading}>
-                  {loading ? 'Sending...' : 'Send'}
-                </button>
-              </div>
-              {voiceMode && (
-                <div className="mt-2 flex items-center gap-2 text-xs text-red-600">
-                  <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />
-                  <span>
-                    Mic live
-                    {isSpeaking ? ' - speaking' : ''}
-                    {!isSpeaking && isPatientSpeaking ? ' - responding' : ''}
-                  </span>
-                </div>
-              )}
-            </div>
+          <div className="lg:col-span-2">
+            <SimulationChatInterface
+              title="Simulation Chat"
+              messages={messages}
+              input={input}
+              loading={loading}
+              error={error}
+              voiceError={voiceError}
+              onInputChange={setInput}
+              onSend={send}
+              onEndSession={() => setIsConfirmOpen(true)}
+              endSessionLabel={activeSimulationIsPracticeMode ? 'End Practice Session' : 'Complete Simulation'}
+              endSessionClassName={activeSimulationIsPracticeMode ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}
+              showVoiceButton={true}
+              voiceMode={voiceMode}
+              onToggleVoiceMode={toggleVoiceMode}
+              isSpeaking={isSpeaking}
+              isPatientSpeaking={isPatientSpeaking}
+            />
           </div>
         </div>
-
         {isNavWarningOpen && (
           <div className="fixed inset-0 z-50">
             <button
@@ -888,8 +826,7 @@ export default function Page() {
                             {assignment.isGlobal ? 'Global' : 'Assigned'}
                           </span>
                         </div>
-                        <p className="mt-2 text-sm text-gray-600 line-clamp-3">{assignment.description}</p>
-                        <div className="mt-3 text-xs text-gray-500 font-mono">{assignment.code}</div>
+                        <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap">{assignment.description}</p>
                         <button
                           onClick={() => startSimulation(assignment)}
                           className="mt-4 w-full px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700"
@@ -1005,3 +942,4 @@ export default function Page() {
     </div>
   )
 }
+
