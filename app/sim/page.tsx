@@ -79,6 +79,17 @@ const formatDuration = (seconds?: number) => {
 
 const DEFAULT_PATIENT_VOICE = 'en-US-JennyNeural'
 
+const MALE_VOICE_HINTS = ['guy', 'davis', 'tony', 'jason', 'andrew', 'brandon', 'christopher', 'eric', 'roger', 'ryan']
+const FEMALE_VOICE_HINTS = ['jenny', 'aria', 'emma', 'sara', 'ashley', 'ava', 'michelle', 'monica', 'nancy']
+
+const getAvatarCharacterForVoice = (voiceName?: string) => {
+  const voice = String(voiceName || '').toLowerCase()
+  if (!voice) return 'lisa'
+  if (MALE_VOICE_HINTS.some((token) => voice.includes(token))) return 'harry'
+  if (FEMALE_VOICE_HINTS.some((token) => voice.includes(token))) return 'lisa'
+  return 'lisa'
+}
+
 export default function Page() {
   const router = useRouter()
   const systemPrompt = useStore((s) => s.systemPrompt)
@@ -761,7 +772,7 @@ export default function Page() {
                 <AvatarPlayer
                   ref={avatarPlayerRef}
                   voice={activePatientVoice}
-                  avatarCharacter="lisa"
+                  avatarCharacter={getAvatarCharacterForVoice(activePatientVoice)}
                   avatarStyle="casual-sitting"
                   onSpeakStart={() => setIsAiSpeaking(true)}
                   onSpeakEnd={() => setIsAiSpeaking(false)}

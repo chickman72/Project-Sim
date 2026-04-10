@@ -6,6 +6,7 @@ import CohortManager from '../../components/CohortManager'
 import NeedsReviewDashboard from '../../components/NeedsReviewDashboard'
 import SimulationPreview from '../../components/simulation/SimulationPreview'
 import type { DraftSimulation, RubricCriterion } from '../../components/simulation/types'
+import { duplicateSimulation } from './actions'
 
 type SimulationVisibility = 'global' | 'cohort' | 'private'
 type Simulation = {
@@ -59,6 +60,43 @@ export default function Page() {
   const [isEvaluationCriteriaOpen, setIsEvaluationCriteriaOpen] = useState(true)
   const [cohorts, setCohorts] = useState<{ id: string; name: string }[]>([])
   const [activeTab, setActiveTab] = useState<'simulations' | 'classes' | 'needsReview'>('simulations')
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false)
+  const [duplicateTargetId, setDuplicateTargetId] = useState<string | null>(null)
+  const [newSimTitle, setNewSimTitle] = useState('')
+  const [isDuplicating, setIsDuplicating] = useState(false)
+
+  const loadConfigData = async () => {
+    try {
+      const [setupResp, cohortResp] = await Promise.all([fetch('/api/setups'), fetch('/api/cohorts')])
+      if (setupResp.ok) {
+        const data = await setupResp.json()
+        const setupsWithTitles = data.map((s: any) => ({
+          ...s,
+          title: s.title || '',
+          description: s.description || '',
+          assignedCohortId: s.assignedCohortId,
+          visibility: s.visibility || (s.assignedCohortId ? 'cohort' : 'global'),
+          isPracticeMode: Boolean(s.isPracticeMode),
+          patientVoice:
+            typeof s.patientVoice === 'string' && s.patientVoice.trim().length > 0
+              ? s.patientVoice.trim()
+              : DEFAULT_PATIENT_VOICE,
+          conversationStarters: Array.isArray(s.conversationStarters)
+            ? s.conversationStarters.map((v: any) => String(v || ''))
+            : [],
+          rubric: Array.isArray(s.rubric) ? s.rubric : [],
+        }))
+        setSetups(setupsWithTitles)
+      }
+
+      if (cohortResp.ok) {
+        const cohortData = await cohortResp.json()
+        setCohorts(cohortData)
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   useEffect(() => {
     if (!userId) {
@@ -66,41 +104,7 @@ export default function Page() {
       setCohorts([])
       return
     }
-    ;(async () => {
-      try {
-        // Load setups
-        const setupResp = await fetch('/api/setups')
-        if (setupResp.ok) {
-          const data = await setupResp.json()
-          const setupsWithTitles = data.map((s: any) => ({ 
-            ...s, 
-            title: s.title || '', 
-            description: s.description || '',
-            assignedCohortId: s.assignedCohortId,
-            visibility: s.visibility || (s.assignedCohortId ? 'cohort' : 'global'),
-            isPracticeMode: Boolean(s.isPracticeMode),
-            patientVoice:
-              typeof s.patientVoice === 'string' && s.patientVoice.trim().length > 0
-                ? s.patientVoice.trim()
-                : DEFAULT_PATIENT_VOICE,
-            conversationStarters: Array.isArray(s.conversationStarters)
-              ? s.conversationStarters.map((v: any) => String(v || ''))
-              : [],
-            rubric: Array.isArray(s.rubric) ? s.rubric : []
-          }))
-          setSetups(setupsWithTitles)
-        }
-
-        // Load cohorts
-        const cohortResp = await fetch('/api/cohorts')
-        if (cohortResp.ok) {
-          const cohortData = await cohortResp.json()
-          setCohorts(cohortData)
-        }
-      } catch {
-        // ignore
-      }
-    })()
+    loadConfigData()
   }, [userId])
 
   useEffect(() => {
@@ -227,6 +231,34 @@ export default function Page() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error deleting setup')
+    }
+  }
+
+  const resetDuplicateModalState = () => {
+    setIsDuplicateModalOpen(false)
+    setDuplicateTargetId(null)
+    setNewSimTitle('')
+    setIsDuplicating(false)
+  }
+
+  const handleDuplicateConfirm = async () => {
+    if (!duplicateTargetId) return
+    const trimmedTitle = newSimTitle.trim()
+    if (!trimmedTitle) {
+      setError('New simulation name is required')
+      return
+    }
+
+    try {
+      setError(null)
+      setIsDuplicating(true)
+      await duplicateSimulation(duplicateTargetId, trimmedTitle)
+      resetDuplicateModalState()
+      await loadConfigData()
+      router.refresh()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error duplicating setup')
+      setIsDuplicating(false)
     }
   }
 
@@ -387,6 +419,17 @@ export default function Page() {
                         </button>
                         <button
                           type="button"
+                          className="px-3 py-1.5 text-sm text-indigo-700 bg-indigo-100 rounded-md hover:bg-indigo-200"
+                          onClick={() => {
+                            setDuplicateTargetId(setup.code)
+                            setNewSimTitle(`${setup.title || 'Untitled'} (Copy)`)
+                            setIsDuplicateModalOpen(true)
+                          }}
+                        >
+                          Duplicate
+                        </button>
+                        <button
+                          type="button"
                           className="px-3 py-1.5 text-sm text-red-700 bg-red-100 rounded-md hover:bg-red-200"
                           onClick={() => deleteSetup(setup.code)}
                         >
@@ -395,6 +438,39 @@ export default function Page() {
                       </div>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {isDuplicateModalOpen && (
+                <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
+                  <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+                    <h3 className="text-lg font-semibold text-gray-900">Duplicate Simulation</h3>
+                    <p className="mt-1 text-sm text-gray-600">New Simulation Name</p>
+                    <input
+                      value={newSimTitle}
+                      onChange={(e) => setNewSimTitle(e.target.value)}
+                      className="mt-2 w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Enter new simulation name"
+                    />
+                    <div className="mt-5 flex items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={resetDuplicateModalState}
+                        disabled={isDuplicating}
+                        className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDuplicateConfirm}
+                        disabled={isDuplicating}
+                        className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 rounded-md hover:bg-indigo-700 disabled:opacity-60"
+                      >
+                        {isDuplicating ? 'Duplicating...' : 'Confirm Duplicate'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
@@ -663,12 +739,25 @@ export default function Page() {
                       <p>You have unsaved changes to the simulation setup. Save the setup to apply them.</p>
                     </div>
                   )}
-                  <button
-                    className="mt-6 w-full px-6 py-3 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition-colors"
-                    onClick={saveSetup}
-                  >
-                    {selectedSimId ? 'Save Changes' : 'Save as New Setup'}
-                  </button>
+                  <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      className="w-full px-6 py-3 bg-green-600 text-white font-semibold rounded-md hover:bg-green-700 transition-colors"
+                      onClick={saveSetup}
+                    >
+                      {selectedSimId ? 'Save Changes' : 'Save as New Setup'}
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full px-6 py-3 bg-gray-200 text-gray-800 font-semibold rounded-md hover:bg-gray-300 transition-colors"
+                      onClick={() => {
+                        setSelectedSimId(null)
+                        setCurrentView('list')
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
                 <div>
                   <SimulationPreview draftSim={draftSim} />
