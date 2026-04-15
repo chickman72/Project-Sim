@@ -22,11 +22,13 @@ export type NeedsReviewRow = {
   evaluationStatus: EvaluationStatus
   evaluationData?: EvaluationCriterion[]
   rubric?: Array<{ id: string; name: string; successCondition: string }>
+  archetype?: 'clinical' | 'tutor' | 'assistant'
 }
 
 export type NeedsReviewFilters = {
   cohortId?: string
   simulationCode?: string
+  archetype?: 'clinical' | 'tutor' | 'assistant'
 }
 
 type CohortRecord = {
@@ -40,6 +42,7 @@ type SetupRecord = {
   title?: string
   assignedCohortId?: string
   rubric?: Array<{ id: string; name: string; successCondition: string }>
+  archetype?: 'clinical' | 'tutor' | 'assistant'
 }
 
 type SessionStateRecord = {
@@ -59,6 +62,12 @@ type StudentInfo = {
 }
 
 const LOW_DURATION_SECONDS = 120
+const normalizeArchetype = (
+  archetype: unknown
+): 'clinical' | 'tutor' | 'assistant' => {
+  if (archetype === 'tutor' || archetype === 'assistant') return archetype
+  return 'clinical'
+}
 
 export const getNeedsReviewDataForInstructor = async (
   instructorId: string,
@@ -79,7 +88,9 @@ export const getNeedsReviewDataForInstructor = async (
 
   const setupsContainer = await getSetupsContainer()
   const { resources: setupResources } = await setupsContainer.items
-    .query<SetupRecord>('SELECT c.code, c.title, c.assignedCohortId, c.rubric FROM c WHERE IS_DEFINED(c.assignedCohortId)')
+    .query<SetupRecord>(
+      'SELECT c.code, c.title, c.assignedCohortId, c.rubric, c.archetype FROM c WHERE IS_DEFINED(c.assignedCohortId)'
+    )
     .fetchAll()
 
   const cohortSimulationMap = new Map<string, SetupRecord[]>()
@@ -186,6 +197,7 @@ export const getNeedsReviewDataForInstructor = async (
         evaluationStatus: row.evaluationStatus || 'none',
         evaluationData: row.evaluationData || [],
         rubric: setup?.rubric || [],
+        archetype: normalizeArchetype(setup?.archetype),
       }
     })
     .filter((row) => !!row.cohortId)
@@ -196,6 +208,10 @@ export const getNeedsReviewDataForInstructor = async (
 
   if (filters.simulationCode) {
     rows = rows.filter((row) => row.simulationCode === filters.simulationCode)
+  }
+
+  if (filters.archetype) {
+    rows = rows.filter((row) => (row.archetype || 'clinical') === filters.archetype)
   }
 
   rows.sort((a, b) => {

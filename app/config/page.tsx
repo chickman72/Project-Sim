@@ -730,6 +730,8 @@ export default function Page() {
                           type="button"
                           onClick={() => {
                             setDraftSim((prev) => {
+                              const isSwitchingFromClinical =
+                                prev.archetype === 'clinical' && option.value !== 'clinical'
                               const nextPrompt =
                                 option.value === 'assistant' &&
                                 (prev.prompt.trim().length === 0 || prev.prompt === defaultDraftSim.prompt)
@@ -739,6 +741,10 @@ export default function Page() {
                                 ...prev,
                                 archetype: option.value,
                                 prompt: nextPrompt,
+                                // Non-clinical archetypes should not persist clinical-only settings.
+                                isPracticeMode: isSwitchingFromClinical ? true : prev.isPracticeMode,
+                                patientVoice: isSwitchingFromClinical ? DEFAULT_PATIENT_VOICE : prev.patientVoice,
+                                rubric: isSwitchingFromClinical ? [] : prev.rubric,
                                 knowledgeBaseMode:
                                   option.value === 'tutor' || option.value === 'assistant'
                                     ? 'strict_rag'
@@ -840,23 +846,25 @@ export default function Page() {
                     )}
                   </div>
 
-                  <div className="mb-4 rounded-md border border-gray-200 bg-gray-50 p-3">
-                    <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-800">
-                      <input
-                        type="checkbox"
-                        checked={draftSim.isPracticeMode}
-                        onChange={(e) => {
-                        setDraftSim((prev) => ({ ...prev, isPracticeMode: e.target.checked }))
-                        setIsDirty(true)
-                      }}
-                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                      />
-                      Practice Mode (Ungraded)
-                    </label>
-                    <p className="mt-1 text-xs text-gray-600">
-                      Practice scenarios always remain available for fresh attempts and are not treated as graded submissions.
-                    </p>
-                  </div>
+                  {draftSim.archetype === 'clinical' && (
+                    <div className="mb-4 rounded-md border border-gray-200 bg-gray-50 p-3">
+                      <label className="inline-flex items-center gap-2 text-sm font-medium text-gray-800">
+                        <input
+                          type="checkbox"
+                          checked={draftSim.isPracticeMode}
+                          onChange={(e) => {
+                          setDraftSim((prev) => ({ ...prev, isPracticeMode: e.target.checked }))
+                          setIsDirty(true)
+                        }}
+                          className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Practice Mode (Ungraded)
+                      </label>
+                      <p className="mt-1 text-xs text-gray-600">
+                        Practice scenarios always remain available for fresh attempts and are not treated as graded submissions.
+                      </p>
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">AI Mode</label>
@@ -1063,6 +1071,7 @@ export default function Page() {
                     )}
                   </div>
                   )}
+                  {draftSim.archetype === 'clinical' && (
                   <div className="mt-6 border border-gray-200 rounded-md p-4 bg-gray-50">
                     <div className="flex items-center justify-between mb-3">
                       <button
@@ -1155,6 +1164,7 @@ export default function Page() {
                       </>
                     )}
                   </div>
+                  )}
                   {isDirty && (
                     <div className="mt-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4" role="alert">
                       <p className="font-bold">Warning</p>

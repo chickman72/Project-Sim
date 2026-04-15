@@ -30,6 +30,7 @@ type NeedsReviewRow = {
   evaluationStatus: EvaluationStatus
   evaluationData?: EvaluationRow[]
   rubric?: Array<{ id: string; name: string; successCondition: string }>
+  archetype?: 'clinical' | 'tutor' | 'assistant'
 }
 
 type NeedsReviewResponse = {
@@ -78,6 +79,7 @@ export default function NeedsReviewDashboard() {
   const [simulations, setSimulations] = useState<Array<{ code: string; name: string }>>([])
   const [cohortFilter, setCohortFilter] = useState('')
   const [simulationFilter, setSimulationFilter] = useState('')
+  const [archetypeFilter, setArchetypeFilter] = useState('')
   const [busySessionId, setBusySessionId] = useState<string | null>(null)
   const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set())
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
@@ -99,8 +101,13 @@ export default function NeedsReviewDashboard() {
   const [evaluationRows, setEvaluationRows] = useState<EvaluationRow[]>([])
   const [evaluationTranscript, setEvaluationTranscript] = useState<TranscriptMessage[]>([])
   const [activeEvalSessionId, setActiveEvalSessionId] = useState<string | null>(null)
+  const [summaryOpen, setSummaryOpen] = useState(false)
+  const [summaryTitle, setSummaryTitle] = useState('')
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [summaryError, setSummaryError] = useState<string | null>(null)
+  const [summaryText, setSummaryText] = useState('')
 
-  const loadData = React.useCallback(async (cohortId?: string, simulationCode?: string) => {
+  const loadData = React.useCallback(async (cohortId?: string, simulationCode?: string, archetype?: string) => {
     try {
       setLoading(true)
       setError(null)
@@ -108,6 +115,7 @@ export default function NeedsReviewDashboard() {
       const params = new URLSearchParams()
       if (cohortId) params.set('cohortId', cohortId)
       if (simulationCode) params.set('simulationCode', simulationCode)
+      if (archetype) params.set('archetype', archetype)
 
       const resp = await fetch(`/api/instructor/needs-review${params.toString() ? `?${params.toString()}` : ''}`)
       if (!resp.ok) {
@@ -132,8 +140,8 @@ export default function NeedsReviewDashboard() {
   }, [loadData])
 
   React.useEffect(() => {
-    loadData(cohortFilter || undefined, simulationFilter || undefined)
-  }, [cohortFilter, simulationFilter, loadData])
+    loadData(cohortFilter || undefined, simulationFilter || undefined, archetypeFilter || undefined)
+  }, [cohortFilter, simulationFilter, archetypeFilter, loadData])
 
   const flaggedCount = useMemo(() => rows.filter((row) => row.isFlagged).length, [rows])
   const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedSessionIds.has(row.sessionId))
@@ -203,7 +211,7 @@ export default function NeedsReviewDashboard() {
       })
       const data = await resp.json().catch(() => null)
       if (!resp.ok) throw new Error(data?.error || 'Failed to run AI evaluation')
-      await loadData(cohortFilter || undefined, simulationFilter || undefined)
+      await loadData(cohortFilter || undefined, simulationFilter || undefined, archetypeFilter || undefined)
     } catch (err: any) {
       setError(err?.message || 'Failed to run AI evaluation')
     } finally {
@@ -221,7 +229,7 @@ export default function NeedsReviewDashboard() {
       })
       const data = await resp.json().catch(() => null)
       if (!resp.ok) throw new Error(data?.error || 'Failed to reopen session')
-      await loadData(cohortFilter || undefined, simulationFilter || undefined)
+      await loadData(cohortFilter || undefined, simulationFilter || undefined, archetypeFilter || undefined)
     } catch (err: any) {
       setError(err?.message || 'Failed to reopen session')
     } finally {
@@ -257,6 +265,33 @@ export default function NeedsReviewDashboard() {
     }
   }
 
+  const summarizeWithAI = async (row: NeedsReviewRow) => {
+    try {
+      setBusySessionId(row.sessionId)
+      setSummaryOpen(true)
+      setSummaryTitle(`${row.simulationName} - ${row.studentName}`)
+      setSummaryLoading(true)
+      setSummaryError(null)
+      setSummaryText('')
+
+      const resp = await fetch('/api/instructor/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId: row.sessionId }),
+      })
+      const data = await resp.json().catch(() => null)
+      if (!resp.ok) throw new Error(data?.error || 'Failed to summarize transcript')
+      const nextSummary = typeof data?.summary === 'string' ? data.summary.trim() : ''
+      if (!nextSummary) throw new Error('AI summary response was empty')
+      setSummaryText(nextSummary)
+    } catch (err: any) {
+      setSummaryError(err?.message || 'Failed to summarize transcript')
+    } finally {
+      setSummaryLoading(false)
+      setBusySessionId(null)
+    }
+  }
+
   const saveEvaluation = async (nextRows: EvaluationRow[], publish: boolean) => {
     if (!activeEvalSessionId) return
     try {
@@ -272,7 +307,7 @@ export default function NeedsReviewDashboard() {
       const data = await resp.json().catch(() => null)
       if (!resp.ok) throw new Error(data?.error || 'Failed to save evaluation')
       setEvaluationOpen(false)
-      await loadData(cohortFilter || undefined, simulationFilter || undefined)
+      await loadData(cohortFilter || undefined, simulationFilter || undefined, archetypeFilter || undefined)
     } catch (err: any) {
       setEvaluationError(err?.message || 'Failed to save evaluation')
     } finally {
@@ -308,7 +343,7 @@ export default function NeedsReviewDashboard() {
           `Delete complete with exceptions. Denied: ${deniedCount}, Failed: ${failedCount}.`,
         )
       }
-      await loadData(cohortFilter || undefined, simulationFilter || undefined)
+      await loadData(cohortFilter || undefined, simulationFilter || undefined, archetypeFilter || undefined)
     } catch (err: any) {
       setError(err?.message || 'Failed to delete selected sessions')
     } finally {
@@ -338,7 +373,7 @@ export default function NeedsReviewDashboard() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
           <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Filter by Cohort</label>
           <select value={cohortFilter} onChange={(e) => setCohortFilter(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
@@ -347,10 +382,19 @@ export default function NeedsReviewDashboard() {
           </select>
         </div>
         <div>
-          <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Filter by Simulation</label>
+          <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Filter by Scenario</label>
           <select value={simulationFilter} onChange={(e) => setSimulationFilter(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
             <option value="">All Simulations</option>
             {simulations.map((simulation) => <option key={simulation.code} value={simulation.code}>{simulation.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wide mb-1">Filter by Archetype</label>
+          <select value={archetypeFilter} onChange={(e) => setArchetypeFilter(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm">
+            <option value="">All Archetypes</option>
+            <option value="clinical">Clinical Simulator</option>
+            <option value="tutor">Socratic Tutor</option>
+            <option value="assistant">Course Assistant</option>
           </select>
         </div>
       </div>
@@ -388,6 +432,7 @@ export default function NeedsReviewDashboard() {
             {!loading && rows.map((row) => {
               const rowClass = row.flagType === 'abandoned_or_timeout' ? 'bg-rose-50' : row.flagType === 'low_duration' ? 'bg-amber-50' : 'bg-white'
               const flagLabel = row.flagType === 'abandoned_or_timeout' ? '[!] Abandoned/Timeout' : row.flagType === 'low_duration' ? '[!] Very Short' : '-'
+              const isClinical = (row.archetype || 'clinical') === 'clinical'
 
               return (
                 <tr key={row.sessionId} className={rowClass}>
@@ -416,7 +461,7 @@ export default function NeedsReviewDashboard() {
                   <td className="px-3 py-3 text-gray-700">{formatDuration(row.durationSeconds)}</td>
                   <td className="px-3 py-3 text-gray-400">-</td>
                   <td className="px-3 py-3">
-                    {row.status === 'completed' && (
+                    {isClinical && row.status === 'completed' && (
                       <button
                         onClick={() => reopenSession(row)}
                         disabled={busySessionId === row.sessionId}
@@ -425,7 +470,7 @@ export default function NeedsReviewDashboard() {
                         {busySessionId === row.sessionId ? 'Reopening...' : 'Reopen Session'}
                       </button>
                     )}
-                    {row.evaluationStatus === 'none' && (
+                    {isClinical && row.evaluationStatus === 'none' && (
                       <button
                         onClick={() => runAIEval(row)}
                         disabled={busySessionId === row.sessionId}
@@ -434,7 +479,16 @@ export default function NeedsReviewDashboard() {
                         {busySessionId === row.sessionId ? 'Running...' : 'Run AI Eval'}
                       </button>
                     )}
-                    {row.evaluationStatus === 'pending_approval' && (
+                    {!isClinical && (
+                      <button
+                        onClick={() => summarizeWithAI(row)}
+                        disabled={busySessionId === row.sessionId}
+                        className="mb-1 px-3 py-1.5 rounded-md bg-teal-600 text-white text-xs font-medium hover:bg-teal-700 disabled:opacity-50"
+                      >
+                        {busySessionId === row.sessionId ? 'Summarizing...' : 'Summarize with AI'}
+                      </button>
+                    )}
+                    {isClinical && row.evaluationStatus === 'pending_approval' && (
                       <button
                         onClick={() => openEvaluation(row)}
                         className="px-3 py-1.5 rounded-md bg-amber-600 text-white text-xs font-medium hover:bg-amber-700"
@@ -442,7 +496,7 @@ export default function NeedsReviewDashboard() {
                         Review & Publish
                       </button>
                     )}
-                    {row.evaluationStatus === 'published' && (
+                    {isClinical && row.evaluationStatus === 'published' && (
                       <button
                         onClick={() => openEvaluation(row)}
                         className="px-3 py-1.5 rounded-md bg-emerald-600 text-white text-xs font-medium hover:bg-emerald-700"
@@ -489,6 +543,32 @@ export default function NeedsReviewDashboard() {
         onClose={() => setEvaluationOpen(false)}
         onSave={saveEvaluation}
       />
+
+      {summaryOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-3xl rounded-lg bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3">
+              <h4 className="text-base font-semibold text-gray-900">AI Summary - {summaryTitle}</h4>
+              <button
+                type="button"
+                onClick={() => setSummaryOpen(false)}
+                className="rounded px-2 py-1 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+              >
+                Close
+              </button>
+            </div>
+            <div className="max-h-[70vh] overflow-y-auto px-4 py-3">
+              {summaryLoading && <p className="text-sm text-gray-600">Generating summary...</p>}
+              {!summaryLoading && summaryError && (
+                <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{summaryError}</p>
+              )}
+              {!summaryLoading && !summaryError && summaryText && (
+                <pre className="whitespace-pre-wrap text-sm text-gray-800 font-sans">{summaryText}</pre>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

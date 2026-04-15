@@ -15,9 +15,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const cohortId = typeof req.query.cohortId === 'string' ? req.query.cohortId : undefined
   const simulationCode = typeof req.query.simulationCode === 'string' ? req.query.simulationCode : undefined
+  const archetypeRaw = typeof req.query.archetype === 'string' ? req.query.archetype : undefined
+  const archetype =
+    archetypeRaw === 'clinical' || archetypeRaw === 'tutor' || archetypeRaw === 'assistant'
+      ? archetypeRaw
+      : undefined
 
   try {
-    const data = await getNeedsReviewDataForInstructor(session.userId, { cohortId, simulationCode })
+    const data = await getNeedsReviewDataForInstructor(session.userId, { cohortId, simulationCode, archetype })
     return res.status(200).json(data)
   } catch (error: any) {
     console.error('Needs review fetch error:', error)

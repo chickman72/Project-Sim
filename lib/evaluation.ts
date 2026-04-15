@@ -189,3 +189,69 @@ export const runAIEvaluationInternal = async (
   await updateSessionEvaluation(sessionId, 'pending_approval', evaluationData)
   return evaluationData
 }
+
+export const summarizeSessionTranscriptInternal = async (sessionId: string): Promise<string> => {
+  const transcriptTurns = await getSessionTranscript(sessionId)
+  if (!transcriptTurns.length) throw new Error('No transcript found for session')
+
+  const transcriptText = transcriptTurns
+    .map((turn) => {
+      const lines: string[] = []
+      if (turn.studentInput) lines.push(`Student: ${turn.studentInput}`)
+      if (turn.aiOutput) lines.push(`Assistant: ${turn.aiOutput}`)
+      return lines.join('\n')
+    })
+    .filter(Boolean)
+    .join('\n\n')
+
+  const systemPrompt =
+    'You are an instructional reviewer. Summarize a learner-assistant transcript clearly and objectively.'
+  const userPrompt = [
+    'Summarize this transcript for an instructor.',
+    'Return plain text only with these headings:',
+    'Summary:',
+    'Key Topics:',
+    'Strengths:',
+    'Gaps:',
+    'Suggested Next Steps:',
+    '',
+    'Keep it concise and factual. Do not invent details.',
+    '',
+    'Transcript:',
+    transcriptText,
+  ].join('\n')
+
+  const llmUrl = getLLMLiteEndpoint()
+  const apiKey = getLLMLiteApiKey()
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (apiKey) headers['x-litellm-api-key'] = apiKey
+
+  const resp = await fetch(llmUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      model: process.env.LLMLITE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      max_tokens: 900,
+    }),
+  })
+
+  if (!resp.ok) {
+    const txt = await resp.text()
+    throw new Error(`LLM summary failed (${resp.status}): ${txt}`)
+  }
+
+  const data = await resp.json()
+  const rawContent =
+    data?.choices?.[0]?.message?.content ||
+    data?.message?.content ||
+    data?.assistant ||
+    ''
+
+  const summary = typeof rawContent === 'string' ? rawContent.trim() : ''
+  if (!summary) throw new Error('LLM returned empty summary content')
+  return summary
+}
