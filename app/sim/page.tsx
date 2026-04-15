@@ -15,10 +15,13 @@ type Assignment = {
   code: string
   title: string
   description: string
+  archetype?: 'clinical' | 'tutor' | 'assistant'
   assignedCohortId?: string
   isGlobal: boolean
   isPracticeMode?: boolean
 }
+
+type SimulationArchetype = 'clinical' | 'tutor' | 'assistant'
 
 type CompletedScenario = {
   sessionId: string
@@ -90,6 +93,17 @@ const getAvatarCharacterForVoice = (voiceName?: string) => {
   return 'lisa'
 }
 
+const normalizeArchetype = (value: unknown): SimulationArchetype => {
+  if (value === 'tutor' || value === 'assistant') return value
+  return 'clinical'
+}
+
+const getArchetypeLabel = (archetype: SimulationArchetype) => {
+  if (archetype === 'tutor') return 'Concept Tutor'
+  if (archetype === 'assistant') return 'Course Assistant'
+  return 'Clinical Encounter'
+}
+
 export default function Page() {
   const router = useRouter()
   const systemPrompt = useStore((s) => s.systemPrompt)
@@ -108,13 +122,14 @@ export default function Page() {
 
   const [hubTab, setHubTab] = useState<'active' | 'completed'>('active')
   const [hubLoading, setHubLoading] = useState(false)
-  const [activeAssignments, setActiveAssignments] = useState<Assignment[]>([])
+  const [availableSimulations, setAvailableSimulations] = useState<Assignment[]>([])
   const [completedScenarios, setCompletedScenarios] = useState<CompletedScenario[]>([])
 
   const [view, setView] = useState<'hub' | 'chat'>('hub')
   const [activeSimulationCode, setActiveSimulationCode] = useState('')
   const [activeSimulationTitle, setActiveSimulationTitle] = useState('')
   const [activeSimulationDescription, setActiveSimulationDescription] = useState('')
+  const [activeSimulationArchetype, setActiveSimulationArchetype] = useState<SimulationArchetype>('clinical')
   const [activePatientVoice, setActivePatientVoice] = useState(DEFAULT_PATIENT_VOICE)
   const [activeSimulationIsPracticeMode, setActiveSimulationIsPracticeMode] = useState(false)
   const [activeConversationStarters, setActiveConversationStarters] = useState<string[]>([])
@@ -176,7 +191,7 @@ export default function Page() {
       const assignmentsData = await assignmentsResp.json()
       const completedData = await completedResp.json()
 
-      setActiveAssignments(Array.isArray(assignmentsData) ? assignmentsData : [])
+      setAvailableSimulations(Array.isArray(assignmentsData) ? assignmentsData : [])
       setCompletedScenarios(Array.isArray(completedData) ? completedData : [])
     } catch (err: any) {
       setError(err?.message || 'Failed to load student dashboard')
@@ -225,6 +240,90 @@ export default function Page() {
   React.useEffect(() => {
     messagesRef.current = messages
   }, [messages])
+
+  const normalizeArchetype = (value: unknown): 'clinical' | 'tutor' | 'assistant' => {
+    if (value === 'tutor' || value === 'assistant') return value
+    return 'clinical'
+  }
+
+  const activeAssessments = availableSimulations.filter(
+    (sim) => normalizeArchetype(sim.archetype) === 'clinical' && !Boolean(sim.isPracticeMode),
+  )
+  const practiceLabs = availableSimulations.filter(
+    (sim) => normalizeArchetype(sim.archetype) === 'clinical' && Boolean(sim.isPracticeMode),
+  )
+  const myResources = availableSimulations.filter((sim) => {
+    const archetype = normalizeArchetype(sim.archetype)
+    return archetype === 'tutor' || archetype === 'assistant'
+  })
+  const isResourceHeroMode =
+    activeAssessments.length === 0 && practiceLabs.length === 0 && myResources.length > 0
+
+  const getAssignmentArchetypeLabel = (assignment: Assignment) => {
+    const archetype = normalizeArchetype(assignment.archetype)
+    if (archetype === 'tutor') return 'Socratic Tutor'
+    if (archetype === 'assistant') return 'Course Assistant'
+    return 'Clinical Sim'
+  }
+
+  const getArchetypeIcon = (assignment: Assignment) => {
+    const archetype = normalizeArchetype(assignment.archetype)
+    if (archetype === 'clinical') {
+      return (
+        <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+          <path d="M9 2a1 1 0 00-1 1v1H5a2 2 0 00-2 2v8a2 2 0 002 2h3v1a1 1 0 102 0v-1h3a2 2 0 002-2V6a2 2 0 00-2-2h-3V3a1 1 0 00-1-1z" />
+        </svg>
+      )
+    }
+    if (archetype === 'tutor') {
+      return (
+        <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+          <path d="M3 4a2 2 0 012-2h9a2 2 0 012 2v9a2 2 0 01-2 2H7l-3 3V4z" />
+        </svg>
+      )
+    }
+    return (
+      <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+        <path d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12V3H4zm3 4h6v1H7V7zm0 3h6v1H7v-1z" />
+      </svg>
+    )
+  }
+
+  const sectionCardClass = (section: 'assessment' | 'practice' | 'resource' | 'hero') => {
+    if (section === 'assessment') return 'rounded-xl border border-blue-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow'
+    if (section === 'practice') return 'rounded-xl border border-gray-200 bg-white p-4 hover:shadow-sm transition-shadow'
+    if (section === 'resource') return 'rounded-xl border border-emerald-200 bg-emerald-50 p-4 hover:shadow-sm transition-shadow'
+    return 'rounded-2xl border border-emerald-300 bg-gradient-to-r from-emerald-50 to-cyan-50 p-6 shadow-sm hover:shadow-md transition-shadow'
+  }
+
+  const renderSimulationCards = (items: Assignment[], section: 'assessment' | 'practice' | 'resource' | 'hero') => (
+    <div className={section === 'hero' ? 'grid grid-cols-1 md:grid-cols-2 gap-5' : 'grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4'}>
+      {items.map((assignment) => (
+        <button
+          key={assignment.id}
+          type="button"
+          onClick={() => {
+            void startSimulation(assignment)
+          }}
+          className={`${sectionCardClass(section)} w-full text-left`}
+        >
+          <div className="flex items-center justify-between gap-2">
+            <h3 className={`${section === 'hero' ? 'text-lg' : 'text-base'} font-semibold text-gray-900 line-clamp-2`}>
+              {assignment.title}
+            </h3>
+            <span className="inline-flex items-center gap-1 shrink-0 rounded-full bg-white/80 border border-gray-200 text-gray-700 px-2 py-1 text-xs font-medium">
+              {getArchetypeIcon(assignment)}
+              {getAssignmentArchetypeLabel(assignment)}
+            </span>
+          </div>
+          <p className={`mt-2 ${section === 'hero' ? 'text-base' : 'text-sm'} text-gray-600 whitespace-pre-wrap`}>
+            {assignment.description}
+          </p>
+          <div className="mt-4 text-sm font-semibold text-blue-700">Open</div>
+        </button>
+      ))}
+    </div>
+  )
 
   const stopTts = React.useCallback(() => {
     if (ttsAudioRef.current) {
@@ -341,7 +440,9 @@ export default function Page() {
       if (!content) return
       if (loading) return
 
-      const responseMode = opts?.responseMode || interactionMode
+      const responseModeRaw = opts?.responseMode || interactionMode
+      const responseMode =
+        activeSimulationArchetype !== 'clinical' && responseModeRaw === 'avatar' ? 'text' : responseModeRaw
       setError(null)
       const historyToSend = opts?.messageHistory ?? messagesRef.current.slice()
       if (!opts?.userMessageAlreadyAppended) {
@@ -392,7 +493,16 @@ export default function Page() {
         setLoading(false)
       }
     },
-    [loading, addMessage, systemPrompt, activeSimulationCode, interactionMode, speakAssistantWithAvatar, speakAssistantWithVoice],
+    [
+      loading,
+      addMessage,
+      systemPrompt,
+      activeSimulationCode,
+      activeSimulationArchetype,
+      interactionMode,
+      speakAssistantWithAvatar,
+      speakAssistantWithVoice,
+    ],
   )
 
   const logout = async () => {
@@ -411,6 +521,7 @@ export default function Page() {
       setActiveSimulationCode('')
       setActiveSimulationTitle('')
       setActiveSimulationDescription('')
+      setActiveSimulationArchetype('clinical')
       setActiveSimulationIsPracticeMode(false)
       setActivePatientVoice(DEFAULT_PATIENT_VOICE)
       setActiveConversationStarters([])
@@ -461,14 +572,16 @@ export default function Page() {
 
       const setup = await setupResp.json()
       const basePrompt = setup.prompt || 'You are the patient in this scenario.'
+      const archetype = normalizeArchetype(setup.archetype || assignment.archetype)
 
       clear()
       setInput('')
       setVoiceError(null)
-      setSystemPrompt(applyPatientRolePrompt(basePrompt))
+      setSystemPrompt(archetype === 'clinical' ? applyPatientRolePrompt(basePrompt) : basePrompt)
       setActiveSimulationCode(assignment.code)
       setActiveSimulationTitle(setup.title || assignment.title || 'Simulation')
       setActiveSimulationDescription(setup.description || assignment.description || '')
+      setActiveSimulationArchetype(archetype)
       setActivePatientVoice(
         typeof setup.patientVoice === 'string' && setup.patientVoice.trim().length > 0
           ? setup.patientVoice.trim()
@@ -487,6 +600,20 @@ export default function Page() {
       setError(err?.message || 'Failed to start simulation')
     }
   }
+
+  React.useEffect(() => {
+    if (view !== 'hub') return
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    const requestedCode = url.searchParams.get('sim')
+    if (!requestedCode) return
+    const target = availableSimulations.find((sim) => sim.code === requestedCode)
+    if (!target) return
+    url.searchParams.delete('sim')
+    const next = `${url.pathname}${url.search}${url.hash}`
+    window.history.replaceState({}, '', next)
+    void startSimulation(target)
+  }, [view, availableSimulations])
 
   const completeSimulation = async () => {
     if (!activeSimulationCode) return
@@ -519,6 +646,7 @@ export default function Page() {
       setActiveSimulationCode('')
       setActiveSimulationTitle('')
       setActiveSimulationDescription('')
+      setActiveSimulationArchetype('clinical')
       setActivePatientVoice(DEFAULT_PATIENT_VOICE)
       setActiveSimulationIsPracticeMode(false)
       setActiveConversationStarters([])
@@ -532,13 +660,46 @@ export default function Page() {
     }
   }
 
+  const completeCurrentSession = async () => {
+    if (!activeSimulationCode) return
+    const sessionDurationSeconds = simulationStartedAt
+      ? Math.max(0, Math.floor((Date.now() - simulationStartedAt) / 1000))
+      : undefined
+    const resp = await fetch('/api/student/sessions/complete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scenarioId: activeSimulationCode, sessionDurationSeconds }),
+    })
+    if (!resp.ok) {
+      const detail = await resp.text()
+      throw new Error(detail || 'Failed to complete simulation')
+    }
+  }
+
   const returnToHub = async () => {
+    if (activeSimulationCode && activeSimulationArchetype !== 'clinical') {
+      try {
+        await completeCurrentSession()
+      } catch (err: any) {
+        setError(err?.message || 'Failed to close resource session')
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href)
+      if (url.searchParams.has('sim')) {
+        url.searchParams.delete('sim')
+        const next = `${url.pathname}${url.search}${url.hash}`
+        window.history.replaceState({}, '', next)
+      }
+    }
     ignoreTranscriptRef.current = true
     stopListening(true)
     stopTts()
     setVoiceMode(false)
     setView('hub')
     setActivePatientVoice(DEFAULT_PATIENT_VOICE)
+    setActiveSimulationArchetype('clinical')
     setActiveSimulationIsPracticeMode(false)
     setActiveConversationStarters([])
     setInteractionMode('text')
@@ -736,39 +897,65 @@ export default function Page() {
     )
   }
 
+  const archetypeLabel = getArchetypeLabel(activeSimulationArchetype)
+  const isClinicalArchetype = activeSimulationArchetype === 'clinical'
+
   if (view === 'chat') {
     return (
       <div className="min-h-screen bg-gray-50 px-4 py-6 sm:px-6">
-        <div className="max-w-7xl mx-auto mb-3">
-          <button
-            type="button"
-            onClick={handleBackToDashboardClick}
-            className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900"
-          >
-            &lt; Back to Dashboard
-          </button>
-        </div>
-        <div className="max-w-7xl mx-auto h-[calc(100vh-3rem)] grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-1 bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col justify-between">
-            <div>
-              <SimulationHeader
-                title={activeSimulationTitle}
-                description={activeSimulationDescription}
-              />
-              <SimulationSidebar
-                conversationStarters={activeConversationStarters}
-                onSelectStarter={applyConversationStarter}
-              />
-            </div>
-
-            <div className="mt-4 space-y-2">
-              <div className="text-xs text-gray-600">Logged in as: {userName || userId}</div>
-            </div>
+        <div className={`mx-auto mb-3 ${isClinicalArchetype ? 'max-w-7xl' : 'max-w-4xl'}`}>
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={handleBackToDashboardClick}
+              className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900"
+            >
+              &lt; Back to Dashboard
+            </button>
+            <span className="inline-flex items-center rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-700">
+              {archetypeLabel}
+            </span>
           </div>
+        </div>
+        <div
+          className={`mx-auto h-[calc(100vh-3rem)] ${
+            isClinicalArchetype
+              ? 'max-w-7xl grid grid-cols-1 lg:grid-cols-3 gap-6'
+              : 'max-w-4xl flex flex-col gap-4'
+          }`}
+        >
+          {isClinicalArchetype && (
+            <div className="lg:col-span-1 bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col justify-between">
+              <div>
+                <SimulationHeader
+                  title={activeSimulationTitle}
+                  description={activeSimulationDescription}
+                />
+                <SimulationSidebar
+                  conversationStarters={activeConversationStarters}
+                  onSelectStarter={applyConversationStarter}
+                />
+              </div>
 
-          <div className="lg:col-span-2">
+              <div className="mt-4 space-y-2">
+                <div className="text-xs text-gray-600">Logged in as: {userName || userId}</div>
+              </div>
+            </div>
+          )}
+
+          <div className={isClinicalArchetype ? 'lg:col-span-2' : ''}>
             <div className="space-y-4">
-              {interactionMode === 'avatar' && (
+              {!isClinicalArchetype && activeConversationStarters.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+                  <SimulationSidebar
+                    conversationStarters={activeConversationStarters}
+                    onSelectStarter={applyConversationStarter}
+                    heading="Suggested Questions"
+                  />
+                </div>
+              )}
+
+              {isClinicalArchetype && interactionMode === 'avatar' && (
                 <AvatarPlayer
                   ref={avatarPlayerRef}
                   voice={activePatientVoice}
@@ -783,7 +970,7 @@ export default function Page() {
                 />
               )}
               <SimulationChatInterface
-                title="Simulation Chat"
+                title={archetypeLabel}
                 messages={messages}
                 input={input}
                 loading={loading}
@@ -791,16 +978,36 @@ export default function Page() {
                 voiceError={voiceError}
                 onInputChange={setInput}
                 onSend={send}
-                onEndSession={() => setIsConfirmOpen(true)}
-                endSessionLabel={activeSimulationIsPracticeMode ? 'End Practice Session' : 'Complete Simulation'}
-                endSessionClassName={activeSimulationIsPracticeMode ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'}
+                onEndSession={
+                  isClinicalArchetype
+                    ? () => setIsConfirmOpen(true)
+                    : () => {
+                        void returnToHub()
+                      }
+                }
+                endSessionLabel={
+                  isClinicalArchetype
+                    ? activeSimulationIsPracticeMode
+                      ? 'End Practice Session'
+                      : 'Complete Simulation'
+                    : 'Close Resource'
+                }
+                endSessionClassName={
+                  isClinicalArchetype
+                    ? activeSimulationIsPracticeMode
+                      ? 'bg-emerald-600 hover:bg-emerald-700'
+                      : 'bg-red-600 hover:bg-red-700'
+                    : 'bg-slate-600 hover:bg-slate-700'
+                }
                 showVoiceButton={true}
                 voiceMode={voiceMode}
                 onToggleVoiceMode={toggleVoiceMode}
                 isListening={isListening}
                 isAiSpeaking={isAiSpeaking}
                 interactionMode={interactionMode}
+                allowAvatarMode={isClinicalArchetype}
                 onInteractionModeChange={(mode) => {
+                  if (!isClinicalArchetype && mode === 'avatar') return
                   setInteractionMode(mode)
                   setVoiceError(null)
                 }}
@@ -835,13 +1042,21 @@ export default function Page() {
                   type="button"
                   onClick={() => {
                     setIsNavWarningOpen(false)
-                    setIsConfirmOpen(true)
+                    if (isClinicalArchetype) {
+                      setIsConfirmOpen(true)
+                    } else {
+                      void returnToHub()
+                    }
                   }}
                   className={`px-3 py-2 rounded-md text-sm text-white ${
-                    activeSimulationIsPracticeMode ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-600 hover:bg-red-700'
+                    isClinicalArchetype
+                      ? activeSimulationIsPracticeMode
+                        ? 'bg-emerald-600 hover:bg-emerald-700'
+                        : 'bg-red-600 hover:bg-red-700'
+                      : 'bg-slate-600 hover:bg-slate-700'
                   }`}
                 >
-                  End Session &amp; Submit
+                  {isClinicalArchetype ? 'End Session & Submit' : 'Close Resource'}
                 </button>
                 <button
                   type="button"
@@ -855,7 +1070,7 @@ export default function Page() {
           </div>
         )}
 
-        {isConfirmOpen && (
+        {isClinicalArchetype && isConfirmOpen && (
           <div className="fixed inset-0 z-50">
             <button
               className="absolute inset-0 bg-black/40"
@@ -956,29 +1171,38 @@ export default function Page() {
 
             {!hubLoading && hubTab === 'active' && (
               <>
-                {activeAssignments.length === 0 ? (
+                {availableSimulations.length === 0 ? (
                   <div className="rounded-lg border border-gray-200 bg-gray-50 p-6 text-sm text-gray-600">
                     You have no active assignments right now.
                   </div>
+                ) : isResourceHeroMode ? (
+                  <div className="mx-auto max-w-5xl text-center">
+                    <h2 className="text-2xl sm:text-3xl font-bold text-gray-900">Welcome to your Learning Resources</h2>
+                    <p className="mt-2 text-sm sm:text-base text-gray-600">
+                      Start with your available tutor and assistant resources.
+                    </p>
+                    <div className="mt-6 text-left">{renderSimulationCards(myResources, 'hero')}</div>
+                  </div>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {activeAssignments.map((assignment) => (
-                      <div key={assignment.id} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex items-center justify-between gap-2">
-                          <h3 className="text-base font-semibold text-gray-900 line-clamp-2">{assignment.title}</h3>
-                          <span className="shrink-0 rounded-full bg-blue-50 text-blue-700 px-2 py-1 text-xs font-medium">
-                            {assignment.isGlobal ? 'Global' : 'Assigned'}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-sm text-gray-600 whitespace-pre-wrap">{assignment.description}</p>
-                        <button
-                          onClick={() => startSimulation(assignment)}
-                          className="mt-4 w-full px-4 py-2 bg-emerald-600 text-white rounded-md text-sm font-medium hover:bg-emerald-700"
-                        >
-                          Start Simulation
-                        </button>
-                      </div>
-                    ))}
+                  <div className="space-y-8">
+                    {activeAssessments.length > 0 && (
+                      <section>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-3">Active Assessments</h3>
+                        {renderSimulationCards(activeAssessments, 'assessment')}
+                      </section>
+                    )}
+                    {practiceLabs.length > 0 && (
+                      <section>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-3">Practice Labs</h3>
+                        {renderSimulationCards(practiceLabs, 'practice')}
+                      </section>
+                    )}
+                    {myResources.length > 0 && (
+                      <section>
+                        <h3 className="text-lg font-semibold text-gray-900 mb-3">My Resources</h3>
+                        {renderSimulationCards(myResources, 'resource')}
+                      </section>
+                    )}
                   </div>
                 )}
               </>

@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { getSetupsContainer } from '../../lib/cosmos'
 import { getSessionCookieName, verifySessionToken } from '../../lib/auth'
 import { logAdminAction } from '../../lib/audit-log'
+import { getCohortById } from '../../lib/cohort'
 import {
   deleteSimulationBlobByUrl,
   uploadSimulationDocumentToBlob,
@@ -18,6 +19,25 @@ type RubricCriterion = {
 }
 
 type KnowledgeBaseMode = 'standard' | 'strict_rag'
+type AgentArchetype = 'clinical' | 'tutor' | 'assistant'
+type SimulationVisibility = 'global' | 'cohort' | 'private'
+
+type SaveSimulationInput = {
+  code: string
+  title: string
+  description: string
+  prompt: string
+  patientVoice?: string
+  visibility?: SimulationVisibility
+  assignedCohortId?: string
+  targetCohorts?: string[]
+  archetype?: AgentArchetype
+  isPracticeMode?: boolean
+  conversationStarters?: string[]
+  rubric?: RubricCriterion[]
+  knowledgeBaseMode?: KnowledgeBaseMode
+  uploadedDocuments?: UploadedSimulationDocument[]
+}
 
 const generateCode = () => Math.random().toString(36).substring(2, 8).toUpperCase()
 
@@ -34,6 +54,115 @@ const findUniqueCode = async () => {
     }
   }
   throw new Error('Unable to generate a unique simulation code. Please try again.')
+}
+
+export async function saveSimulation(input: SaveSimulationInput) {
+  const cookieStore = await cookies()
+  const token = cookieStore.get(getSessionCookieName())?.value
+  const session = verifySessionToken(token)
+
+  if (!session) throw new Error('Not authenticated')
+
+  const code = String(input?.code || '').trim()
+  const prompt = String(input?.prompt || '').trim()
+  if (!code || !prompt) throw new Error('code and prompt are required')
+
+  const validVisibility = new Set<SimulationVisibility>(['global', 'cohort', 'private'])
+  const requestedVisibility = String(input?.visibility || '').trim() as SimulationVisibility
+  const visibility = validVisibility.has(requestedVisibility)
+    ? requestedVisibility
+    : input?.assignedCohortId
+      ? 'cohort'
+      : 'global'
+
+  let assignedCohortId: string | undefined
+  if (visibility === 'cohort') {
+    const cohortId = String(input?.assignedCohortId || '').trim()
+    if (!cohortId) throw new Error('assignedCohortId is required when visibility is cohort')
+    const cohort = await getCohortById(cohortId)
+    if (!cohort) throw new Error('Assigned cohort was not found')
+    if (session.role !== 'Administrator' && cohort.instructorId !== session.userId) {
+      throw new Error('You can only assign simulations to your own cohorts')
+    }
+    assignedCohortId = cohortId
+  }
+
+  const normalizedArchetype: AgentArchetype =
+    input?.archetype === 'tutor' || input?.archetype === 'assistant' ? input.archetype : 'clinical'
+
+  const normalizedTargetCohorts = Array.isArray(input?.targetCohorts)
+    ? Array.from(
+        new Set(
+          input.targetCohorts
+            .map((item) => String(item || '').trim())
+            .filter((item) => item.length > 0),
+        ),
+      )
+    : []
+  if (normalizedTargetCohorts.length === 0) normalizedTargetCohorts.push('global')
+
+  const normalizedConversationStarters = Array.isArray(input?.conversationStarters)
+    ? input.conversationStarters.map((item) => String(item || '').trim()).filter((item) => item.length > 0)
+    : []
+
+  const normalizedRubric = Array.isArray(input?.rubric)
+    ? input.rubric
+        .map((item) => ({
+          id: String(item?.id || '').trim(),
+          name: String(item?.name || '').trim(),
+          successCondition: String(item?.successCondition || '').trim(),
+        }))
+        .filter((item) => item.id && item.name && item.successCondition)
+    : []
+
+  const normalizedUploadedDocuments = Array.isArray(input?.uploadedDocuments)
+    ? input.uploadedDocuments
+        .map((item) => ({
+          fileName: String(item?.fileName || '').trim(),
+          blobUrl: String(item?.blobUrl || '').trim(),
+        }))
+        .filter((item) => item.fileName && item.blobUrl)
+    : []
+
+  const container = await getSetupsContainer()
+  let existingSetup = null
+  try {
+    const { resource } = await container.item(code, code).read()
+    existingSetup = resource
+  } catch (error: any) {
+    if (error?.code !== 404) throw error
+  }
+
+  const itemToInsert = {
+    id: code,
+    code,
+    title: String(input?.title || ''),
+    description: String(input?.description || ''),
+    prompt,
+    archetype: normalizedArchetype,
+    targetCohorts: normalizedTargetCohorts,
+    patientVoice: String(input?.patientVoice || 'en-US-JennyNeural').trim() || 'en-US-JennyNeural',
+    visibility,
+    assignedCohortId,
+    isPracticeMode: Boolean(input?.isPracticeMode),
+    conversationStarters: normalizedConversationStarters,
+    rubric: normalizedRubric,
+    knowledgeBaseMode: input?.knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
+    uploadedDocuments: normalizedUploadedDocuments,
+    userId: session.userId,
+    updatedAt: new Date().toISOString(),
+  }
+
+  const { resource } = await container.items.upsert(itemToInsert)
+  const action = existingSetup ? 'UPDATE_SIM' : 'CREATE_SIM'
+  await logAdminAction(session.userId, action, code, {
+    title: itemToInsert.title,
+    description: itemToInsert.description,
+    updatedAt: itemToInsert.updatedAt,
+  })
+
+  revalidatePath('/config')
+  return resource
 }
 
 export async function duplicateSimulation(originalId: string, newTitle: string) {
@@ -72,6 +201,22 @@ export async function duplicateSimulation(originalId: string, newTitle: string) 
     title: targetTitle,
     description: String(original.description || ''),
     prompt: String(original.prompt || ''),
+    archetype:
+      original.archetype === 'tutor' || original.archetype === 'assistant'
+        ? (original.archetype as AgentArchetype)
+        : ('clinical' as AgentArchetype),
+    targetCohorts: (() => {
+      const normalized = Array.isArray(original.targetCohorts)
+        ? Array.from(
+            new Set(
+              original.targetCohorts
+                .map((item: any) => String(item || '').trim())
+                .filter((item: string) => item.length > 0),
+            ),
+          )
+        : []
+      return normalized.length > 0 ? normalized : ['global']
+    })(),
     patientVoice: typeof original.patientVoice === 'string' ? original.patientVoice : 'en-US-JennyNeural',
     visibility: original.visibility || (original.assignedCohortId ? 'cohort' : 'global'),
     assignedCohortId: original.assignedCohortId || undefined,

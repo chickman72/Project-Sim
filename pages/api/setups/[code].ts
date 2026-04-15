@@ -56,6 +56,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           title: resource.title,
           description: resource.description,
           prompt: resource.prompt,
+          archetype:
+            resource.archetype === 'tutor' || resource.archetype === 'assistant' ? resource.archetype : 'clinical',
+          targetCohorts: (() => {
+            const normalized = Array.isArray(resource.targetCohorts)
+              ? Array.from(
+                  new Set(
+                    resource.targetCohorts
+                      .map((item: any) => String(item || '').trim())
+                      .filter((item: string) => item.length > 0),
+                  ),
+                )
+              : []
+            return normalized.length > 0 ? normalized : ['global']
+          })(),
           knowledgeBaseMode: resource.knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
           uploadedDocuments: Array.isArray(resource.uploadedDocuments)
             ? resource.uploadedDocuments

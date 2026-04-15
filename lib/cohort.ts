@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { getDatabase } from './cosmos'
+import { getUserById, updateUser } from './user'
 
 export interface Cohort {
   id: string
@@ -8,6 +9,37 @@ export interface Cohort {
   studentIds: string[]
   createdAt: string
   updatedAt: string
+}
+
+const normalizeCohortTags = (value: unknown): string[] => {
+  const base = Array.isArray(value) ? value : []
+  const trimmed = base
+    .map((item) => String(item || '').trim())
+    .filter((item) => item.length > 0)
+  const deduped = Array.from(new Set(trimmed))
+  return deduped.includes('global') ? deduped : ['global', ...deduped]
+}
+
+const syncUserCohortTag = async (studentId: string, cohortId: string, enrolled: boolean) => {
+  const user = await getUserById(studentId)
+  if (!user) return
+
+  const currentTags = normalizeCohortTags(user.cohorts)
+  const targetTag = String(cohortId || '').trim()
+  if (!targetTag || targetTag === 'global') return
+
+  const nextTags = enrolled
+    ? Array.from(new Set([...currentTags, targetTag]))
+    : currentTags.filter((tag) => tag !== targetTag)
+
+  const normalizedNextTags = normalizeCohortTags(nextTags)
+  const changed =
+    normalizedNextTags.length !== currentTags.length ||
+    normalizedNextTags.some((tag, index) => tag !== currentTags[index])
+
+  if (!changed) return
+
+  await updateUser(studentId, { cohorts: normalizedNextTags })
 }
 
 export const getCohortsContainer = async () => {
@@ -96,6 +128,13 @@ export const deleteCohort = async (id: string): Promise<boolean> => {
     for (const pk of partitionCandidates) {
       try {
         await container.item(id, pk).delete()
+        for (const studentId of cohort.studentIds || []) {
+          try {
+            await syncUserCohortTag(studentId, id, false)
+          } catch (syncError) {
+            console.error('Failed to sync user cohort tags after cohort deletion', { studentId, cohortId: id, syncError })
+          }
+        }
         return true
       } catch {
         // Try the next partition key candidate.
@@ -114,12 +153,20 @@ export const addStudentToCohort = async (cohortId: string, studentId: string): P
   if (!cohort.studentIds.includes(studentId)) {
     cohort.studentIds.push(studentId)
   }
-  return updateCohort(cohortId, { studentIds: cohort.studentIds })
+  const updated = await updateCohort(cohortId, { studentIds: cohort.studentIds })
+  if (updated) {
+    await syncUserCohortTag(studentId, cohortId, true)
+  }
+  return updated
 }
 
 export const removeStudentFromCohort = async (cohortId: string, studentId: string): Promise<Cohort | null> => {
   const cohort = await getCohortById(cohortId)
   if (!cohort) return null
   cohort.studentIds = cohort.studentIds.filter(id => id !== studentId)
-  return updateCohort(cohortId, { studentIds: cohort.studentIds })
+  const updated = await updateCohort(cohortId, { studentIds: cohort.studentIds })
+  if (updated) {
+    await syncUserCohortTag(studentId, cohortId, false)
+  }
+  return updated
 }

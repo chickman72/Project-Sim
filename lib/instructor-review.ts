@@ -218,5 +218,21 @@ export const getNeedsReviewDataForInstructor = async (
 
 export const instructorCanAccessSession = async (instructorId: string, sessionId: string): Promise<boolean> => {
   const data = await getNeedsReviewDataForInstructor(instructorId)
-  return data.rows.some((row) => row.sessionId === sessionId)
+  if (data.rows.some((row) => row.sessionId === sessionId)) {
+    return true
+  }
+
+  const cohorts = await getCohortsByInstructor(instructorId)
+  const studentIds = new Set(cohorts.flatMap((cohort) => cohort.studentIds || []))
+  if (studentIds.size === 0) return false
+
+  const logsContainer = await getLogsContainer()
+  const { resources } = await logsContainer.items.query<{ userId?: string }>({
+    query: 'SELECT TOP 1 c.userId FROM c WHERE c.sessionId = @sessionId AND IS_DEFINED(c.userId)',
+    parameters: [{ name: '@sessionId', value: sessionId }],
+  }).fetchAll()
+
+  const userId = String(resources?.[0]?.userId || '').trim()
+  if (!userId) return false
+  return studentIds.has(userId)
 }

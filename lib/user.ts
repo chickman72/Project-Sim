@@ -1,7 +1,15 @@
 import crypto from 'node:crypto'
 import { getUsersContainer } from './cosmos'
 
-export type UserRole = 'Administrator' | 'Instructor' | 'Student'
+export type UserRole =
+  | 'Administrator'
+  | 'Instructor'
+  | 'Student'
+  | 'admin'
+  | 'instructor'
+  | 'student'
+
+export type AccessRole = 'admin' | 'instructor' | 'student'
 
 export interface User {
   id: string
@@ -9,9 +17,14 @@ export interface User {
   email?: string
   passwordHash: string
   role: UserRole
+  cohorts?: string[]
   requiresPasswordChange?: boolean
   resetToken?: string
   resetTokenExpiry?: string
+  inviteTokenHash?: string
+  inviteTokenExpiry?: string
+  inviteAcceptedAt?: string
+  inviteCreatedBy?: string
   createdAt: string
   updatedAt: string
 }
@@ -46,7 +59,8 @@ export const createUser = async (
   password: string,
   role: UserRole,
   requiresPasswordChange?: boolean,
-  email?: string
+  email?: string,
+  cohorts: string[] = ['global']
 ): Promise<User> => {
   const container = await getUsersContainer()
   const id = crypto.randomUUID()
@@ -56,6 +70,7 @@ export const createUser = async (
     email: email?.trim(),
     passwordHash: hashPassword(password),
     role,
+    cohorts: Array.isArray(cohorts) && cohorts.length > 0 ? cohorts : ['global'],
     requiresPasswordChange: requiresPasswordChange === true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
@@ -94,7 +109,26 @@ export const getUserByUsername = async (username: string): Promise<User | null> 
   return resources[0] as User || null
 }
 
-export const updateUser = async (id: string, updates: Partial<Pick<User, 'username' | 'email' | 'passwordHash' | 'role' | 'requiresPasswordChange' | 'resetToken' | 'resetTokenExpiry'>>): Promise<User | null> => {
+export const updateUser = async (
+  id: string,
+  updates: Partial<
+    Pick<
+      User,
+      | 'username'
+      | 'email'
+      | 'passwordHash'
+      | 'role'
+      | 'cohorts'
+      | 'requiresPasswordChange'
+      | 'resetToken'
+      | 'resetTokenExpiry'
+      | 'inviteTokenHash'
+      | 'inviteTokenExpiry'
+      | 'inviteAcceptedAt'
+      | 'inviteCreatedBy'
+    >
+  >,
+): Promise<User | null> => {
   const container = await getUsersContainer()
   try {
     const { resource: existing } = await container.item(id).read()

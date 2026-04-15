@@ -15,10 +15,12 @@ export type UploadedSimulationDocument = {
 }
 
 export type DraftSimulation = {
+  archetype: 'clinical' | 'tutor' | 'assistant'
   title: string
   description: string
   prompt: string
   patientVoice: string
+  targetCohorts: string[]
   visibility: 'global' | 'cohort' | 'private'
   assignedCohortId?: string
   isPracticeMode: boolean

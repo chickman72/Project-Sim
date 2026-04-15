@@ -22,6 +22,7 @@ type Props = {
   isAiSpeaking?: boolean
   interactionMode?: 'text' | 'voice' | 'avatar'
   onInteractionModeChange?: (mode: 'text' | 'voice' | 'avatar') => void
+  allowAvatarMode?: boolean
 }
 
 export default function SimulationChatInterface({
@@ -45,6 +46,7 @@ export default function SimulationChatInterface({
   isAiSpeaking = false,
   interactionMode = 'text',
   onInteractionModeChange,
+  allowAvatarMode = true,
 }: Props) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col">
@@ -68,7 +70,9 @@ export default function SimulationChatInterface({
               { key: 'text' as const, label: 'Text' },
               { key: 'voice' as const, label: 'Speak' },
               { key: 'avatar' as const, label: 'Video' },
-            ].map((mode) => (
+            ]
+              .filter((mode) => allowAvatarMode || mode.key !== 'avatar')
+              .map((mode) => (
               <button
                 key={mode.key}
                 type="button"

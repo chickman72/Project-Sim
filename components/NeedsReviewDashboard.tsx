@@ -79,6 +79,8 @@ export default function NeedsReviewDashboard() {
   const [cohortFilter, setCohortFilter] = useState('')
   const [simulationFilter, setSimulationFilter] = useState('')
   const [busySessionId, setBusySessionId] = useState<string | null>(null)
+  const [selectedSessionIds, setSelectedSessionIds] = useState<Set<string>>(new Set())
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
 
   const [transcriptOpen, setTranscriptOpen] = useState(false)
   const [transcriptSessionId, setTranscriptSessionId] = useState<string | undefined>(undefined)
@@ -117,6 +119,7 @@ export default function NeedsReviewDashboard() {
       setRows(Array.isArray(data.rows) ? data.rows : [])
       setCohorts(Array.isArray(data.cohorts) ? data.cohorts : [])
       setSimulations(Array.isArray(data.simulations) ? data.simulations : [])
+      setSelectedSessionIds(new Set())
     } catch (err: any) {
       setError(err?.message || 'Failed to load review dashboard')
     } finally {
@@ -133,6 +136,28 @@ export default function NeedsReviewDashboard() {
   }, [cohortFilter, simulationFilter, loadData])
 
   const flaggedCount = useMemo(() => rows.filter((row) => row.isFlagged).length, [rows])
+  const allVisibleSelected = rows.length > 0 && rows.every((row) => selectedSessionIds.has(row.sessionId))
+  const selectedCount = selectedSessionIds.size
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      setSelectedSessionIds(new Set())
+      return
+    }
+    setSelectedSessionIds(new Set(rows.map((row) => row.sessionId)))
+  }
+
+  const toggleSessionSelection = (sessionId: string) => {
+    setSelectedSessionIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(sessionId)) {
+        next.delete(sessionId)
+      } else {
+        next.add(sessionId)
+      }
+      return next
+    })
+  }
 
   const openTranscript = async (row: NeedsReviewRow) => {
     setTranscriptOpen(true)
@@ -255,6 +280,42 @@ export default function NeedsReviewDashboard() {
     }
   }
 
+  const bulkDeleteSelectedSessions = async () => {
+    if (selectedSessionIds.size === 0) return
+
+    const confirmed = window.confirm(
+      `Delete ${selectedSessionIds.size} selected interaction${selectedSessionIds.size === 1 ? '' : 's'}? This cannot be undone.`,
+    )
+    if (!confirmed) return
+
+    try {
+      setIsBulkDeleting(true)
+      setError(null)
+
+      const sessionIds = Array.from(selectedSessionIds)
+      const resp = await fetch('/api/instructor/sessions', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionIds }),
+      })
+      const data = await resp.json().catch(() => null)
+      if (!resp.ok) throw new Error(data?.error || 'Failed to delete selected sessions')
+
+      const deniedCount = Array.isArray(data?.denied) ? data.denied.length : 0
+      const failedCount = Array.isArray(data?.failed) ? data.failed.length : 0
+      if (deniedCount > 0 || failedCount > 0) {
+        setError(
+          `Delete complete with exceptions. Denied: ${deniedCount}, Failed: ${failedCount}.`,
+        )
+      }
+      await loadData(cohortFilter || undefined, simulationFilter || undefined)
+    } catch (err: any) {
+      setError(err?.message || 'Failed to delete selected sessions')
+    } finally {
+      setIsBulkDeleting(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -262,8 +323,18 @@ export default function NeedsReviewDashboard() {
           <h3 className="text-xl font-semibold text-gray-900">Needs Review Dashboard</h3>
           <p className="text-sm text-gray-600">Flagged first, then newest sessions.</p>
         </div>
-        <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
-          Flagged: <span className="font-semibold text-rose-700">{flaggedCount}</span> / {rows.length}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={bulkDeleteSelectedSessions}
+            disabled={selectedCount === 0 || isBulkDeleting || loading}
+            className="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isBulkDeleting ? 'Deleting...' : `Delete Selected (${selectedCount})`}
+          </button>
+          <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700">
+            Flagged: <span className="font-semibold text-rose-700">{flaggedCount}</span> / {rows.length}
+          </div>
         </div>
       </div>
 
@@ -290,6 +361,15 @@ export default function NeedsReviewDashboard() {
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100 text-gray-700 uppercase text-xs tracking-wide">
             <tr>
+              <th className="px-3 py-3 text-left">
+                <input
+                  type="checkbox"
+                  checked={allVisibleSelected}
+                  onChange={toggleSelectAll}
+                  aria-label="Select all sessions"
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+              </th>
               <th className="px-3 py-3 text-left">Flag</th>
               <th className="px-3 py-3 text-left">Date</th>
               <th className="px-3 py-3 text-left">Student</th>
@@ -302,8 +382,8 @@ export default function NeedsReviewDashboard() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
-            {loading && <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-500">Loading sessions...</td></tr>}
-            {!loading && rows.length === 0 && <tr><td colSpan={9} className="px-3 py-6 text-center text-gray-500">No sessions found for current filters.</td></tr>}
+            {loading && <tr><td colSpan={10} className="px-3 py-6 text-center text-gray-500">Loading sessions...</td></tr>}
+            {!loading && rows.length === 0 && <tr><td colSpan={10} className="px-3 py-6 text-center text-gray-500">No sessions found for current filters.</td></tr>}
 
             {!loading && rows.map((row) => {
               const rowClass = row.flagType === 'abandoned_or_timeout' ? 'bg-rose-50' : row.flagType === 'low_duration' ? 'bg-amber-50' : 'bg-white'
@@ -311,6 +391,15 @@ export default function NeedsReviewDashboard() {
 
               return (
                 <tr key={row.sessionId} className={rowClass}>
+                  <td className="px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedSessionIds.has(row.sessionId)}
+                      onChange={() => toggleSessionSelection(row.sessionId)}
+                      aria-label={`Select session ${row.sessionId}`}
+                      className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                  </td>
                   <td className="px-3 py-3 font-medium text-xs text-gray-700">{flagLabel}</td>
                   <td className="px-3 py-3 text-gray-700">{formatDate(row.date)}</td>
                   <td className="px-3 py-3 text-gray-700">

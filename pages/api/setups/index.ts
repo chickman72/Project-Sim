@@ -6,6 +6,7 @@ import { getCohortById } from '../../../lib/cohort'
 
 type SimulationVisibility = 'global' | 'cohort' | 'private'
 type KnowledgeBaseMode = 'standard' | 'strict_rag'
+type AgentArchetype = 'clinical' | 'tutor' | 'assistant'
 type RubricCriterion = {
   id: string
   name: string
@@ -52,6 +53,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         rubric,
         conversationStarters,
         knowledgeBaseMode,
+        archetype,
+        targetCohorts,
         uploadedDocuments,
       } = req.body
       if (!code || !prompt) {
@@ -131,6 +134,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             .filter((item: UploadedSimulationDocument) => item.fileName && item.blobUrl)
         : []
 
+      let normalizedArchetype: AgentArchetype = 'clinical'
+      if (archetype === 'tutor' || archetype === 'assistant' || archetype === 'clinical') {
+        normalizedArchetype = archetype
+      } else if (typeof archetype !== 'undefined') {
+        return res.status(400).json({ error: 'archetype must be one of: clinical, tutor, assistant' })
+      }
+
+      const normalizedTargetCohorts: string[] = Array.isArray(targetCohorts)
+        ? Array.from(
+            new Set(
+              targetCohorts
+                .map((item: any) => String(item || '').trim())
+                .filter((item: string) => item.length > 0),
+            ),
+          )
+        : []
+      if (normalizedTargetCohorts.length === 0) {
+        normalizedTargetCohorts.push('global')
+      }
+
       const container = await getSetupsContainer()
       
       // Check if setup already exists to determine action type
@@ -148,6 +171,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         title,
         description,
         prompt,
+        archetype: normalizedArchetype,
+        targetCohorts: normalizedTargetCohorts,
         patientVoice: normalizedPatientVoice,
         visibility: normalizedVisibility,
         assignedCohortId: normalizedAssignedCohortId,

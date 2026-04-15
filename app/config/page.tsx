@@ -5,12 +5,16 @@ import { useRouter } from 'next/navigation'
 import CohortManager from '../../components/CohortManager'
 import NeedsReviewDashboard from '../../components/NeedsReviewDashboard'
 import SimulationPreview from '../../components/simulation/SimulationPreview'
+import UserDashboard from '../../components/UserDashboard'
 import type { DraftSimulation, RubricCriterion, UploadedSimulationDocument } from '../../components/simulation/types'
-import { deleteSimulationDocument, duplicateSimulation, uploadSimulationDocument } from './actions'
+import { deleteSimulationDocument, duplicateSimulation, saveSimulation, uploadSimulationDocument } from './actions'
 
 type SimulationVisibility = 'global' | 'cohort' | 'private'
+type AgentArchetype = 'clinical' | 'tutor' | 'assistant'
 type Simulation = {
   code: string
+  archetype?: AgentArchetype
+  targetCohorts?: string[]
   prompt: string
   title: string
   description: string
@@ -25,8 +29,15 @@ type Simulation = {
 }
 
 const DEFAULT_PATIENT_VOICE = 'en-US-JennyNeural'
+const DEFAULT_ASSISTANT_PROMPT =
+  'You are a helpful course assistant. Use the uploaded documents to answer student questions. Do not give medical advice.'
 const MAX_DOCUMENT_SIZE_MB = 50
 const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
+const ARCHETYPE_OPTIONS: Array<{ value: AgentArchetype; title: string; description: string }> = [
+  { value: 'clinical', title: 'Clinical Simulator', description: 'Patient/preceptor roleplay with rubric and avatar options.' },
+  { value: 'tutor', title: 'Socratic Tutor', description: 'Coaching-focused mode emphasizing grounded document retrieval.' },
+  { value: 'assistant', title: 'Course Assistant', description: 'Document-grounded Q&A helper for course support.' },
+]
 const PATIENT_VOICE_OPTIONS = [
   { value: 'en-US-JennyNeural', label: 'en-US-JennyNeural (Female)' },
   { value: 'en-US-GuyNeural', label: 'en-US-GuyNeural (Male)' },
@@ -35,10 +46,12 @@ const PATIENT_VOICE_OPTIONS = [
 ]
 
 const defaultDraftSim: DraftSimulation = {
+  archetype: 'clinical',
   title: '',
   description: '',
   prompt: 'You are the patient in this scenario. Respond in English only.',
   patientVoice: DEFAULT_PATIENT_VOICE,
+  targetCohorts: ['global'],
   visibility: 'global',
   assignedCohortId: undefined,
   isPracticeMode: false,
@@ -46,6 +59,19 @@ const defaultDraftSim: DraftSimulation = {
   rubric: [],
   knowledgeBaseMode: 'standard',
   uploadedDocuments: [],
+}
+
+const normalizeTargetCohorts = (value: unknown): string[] => {
+  const normalized = Array.isArray(value)
+    ? Array.from(
+        new Set(
+          value
+            .map((item) => String(item || '').trim())
+            .filter((item) => item.length > 0),
+        ),
+      )
+    : []
+  return normalized.length > 0 ? normalized : ['global']
 }
 
 export default function Page() {
@@ -65,6 +91,7 @@ export default function Page() {
   const [setups, setSetups] = useState<Simulation[]>([])
   const [isEvaluationCriteriaOpen, setIsEvaluationCriteriaOpen] = useState(true)
   const [cohorts, setCohorts] = useState<{ id: string; name: string }[]>([])
+  const [studioTab, setStudioTab] = useState<'simulations' | 'userManagement'>('simulations')
   const [activeTab, setActiveTab] = useState<'simulations' | 'classes' | 'needsReview'>('simulations')
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false)
   const [duplicateTargetId, setDuplicateTargetId] = useState<string | null>(null)
@@ -84,6 +111,8 @@ export default function Page() {
           ...s,
           title: s.title || '',
           description: s.description || '',
+          archetype: s.archetype === 'tutor' || s.archetype === 'assistant' ? s.archetype : 'clinical',
+          targetCohorts: normalizeTargetCohorts(s.targetCohorts),
           assignedCohortId: s.assignedCohortId,
           visibility: s.visibility || (s.assignedCohortId ? 'cohort' : 'global'),
           isPracticeMode: Boolean(s.isPracticeMode),
@@ -158,6 +187,7 @@ export default function Page() {
   const hydrateDraftFromSetup = (setup: Simulation) => {
     const visibility = setup.visibility || (setup.assignedCohortId ? 'cohort' : 'global')
     setDraftSim({
+      archetype: setup.archetype === 'tutor' || setup.archetype === 'assistant' ? setup.archetype : 'clinical',
       title: setup.title || '',
       description: setup.description || '',
       prompt: setup.prompt || defaultDraftSim.prompt,
@@ -167,6 +197,7 @@ export default function Page() {
           : DEFAULT_PATIENT_VOICE,
       visibility,
       assignedCohortId: visibility === 'cohort' ? setup.assignedCohortId : undefined,
+      targetCohorts: normalizeTargetCohorts(setup.targetCohorts),
       isPracticeMode: Boolean(setup.isPracticeMode),
       conversationStarters: Array.isArray(setup.conversationStarters) ? setup.conversationStarters : [],
       rubric: Array.isArray(setup.rubric) ? setup.rubric : [],
@@ -177,7 +208,7 @@ export default function Page() {
   }
 
   useEffect(() => {
-    if (activeTab !== 'simulations' || currentView !== 'editor') return
+    if (studioTab !== 'simulations' || activeTab !== 'simulations' || currentView !== 'editor') return
 
     if (!selectedSimId) {
       setDraftSim(defaultDraftSim)
@@ -189,7 +220,7 @@ export default function Page() {
     if (setup) {
       hydrateDraftFromSetup(setup)
     }
-  }, [activeTab, currentView, selectedSimId, setups])
+  }, [studioTab, activeTab, currentView, selectedSimId, setups])
 
   const logout = async () => {
     setError(null)
@@ -207,10 +238,12 @@ export default function Page() {
     const codeToUse = selectedSimId || Math.random().toString(36).substring(2, 8).toUpperCase()
     const setupData: any = {
       code: codeToUse,
+      archetype: draftSim.archetype,
       title: draftSim.title,
       description: draftSim.description,
       prompt: draftSim.prompt,
       patientVoice: draftSim.patientVoice || DEFAULT_PATIENT_VOICE,
+      targetCohorts: normalizeTargetCohorts(draftSim.targetCohorts),
       visibility: draftSim.visibility,
       isPracticeMode: draftSim.isPracticeMode,
       conversationStarters: draftSim.conversationStarters,
@@ -225,12 +258,7 @@ export default function Page() {
     }
     
     try {
-      const resp = await fetch('/api/setups', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(setupData)
-      })
-      if (!resp.ok) throw new Error('Failed to save setup')
+      await saveSimulation(setupData)
       
       const newSetups = setups.filter(s => s.code !== codeToUse)
       newSetups.push(setupData)
@@ -414,6 +442,16 @@ export default function Page() {
 
   const initials = userName ? userName.charAt(0).toUpperCase() : userId ? userId.charAt(0).toUpperCase() : ''
 
+  const getArchetypeLabel = (archetype?: AgentArchetype) => {
+    if (archetype === 'tutor') return 'Socratic Tutor'
+    if (archetype === 'assistant') return 'Course Assistant'
+    return 'Clinical Simulator'
+  }
+
+  const clinicalSetups = setups.filter((setup) => (setup.archetype || 'clinical') === 'clinical')
+  const tutorSetups = setups.filter((setup) => setup.archetype === 'tutor')
+  const assistantSetups = setups.filter((setup) => setup.archetype === 'assistant')
+
   const UserBadge = () => (
     <div
       className="relative inline-block text-left"
@@ -466,6 +504,27 @@ export default function Page() {
 
         <div>
           <div>
+            <div className="flex gap-2 mb-6 rounded-lg border border-gray-200 bg-white p-1">
+              <button
+                onClick={() => setStudioTab('simulations')}
+                className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
+                  studioTab === 'simulations' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                Scenarios
+              </button>
+              <button
+                onClick={() => setStudioTab('userManagement')}
+                className={`px-4 py-2 text-sm font-semibold rounded-md transition-colors ${
+                  studioTab === 'userManagement' ? 'bg-blue-600 text-white' : 'text-gray-700 hover:bg-gray-100'
+                }`}
+              >
+                User Management
+              </button>
+            </div>
+
+            {studioTab === 'simulations' && (
+              <>
             {/* Tabs */}
             <div className="flex gap-0 mb-6 border-b border-gray-200 bg-white rounded-t-lg">
               <button
@@ -476,7 +535,7 @@ export default function Page() {
                     : 'border-transparent text-gray-600 hover:text-gray-900'
                 }`}
               >
-                Simulation Setup
+                Scenario Setup
               </button>
               <button
                 onClick={() => setActiveTab('classes')}
@@ -500,11 +559,11 @@ export default function Page() {
               </button>
             </div>
 
-            {/* Simulation Setup Tab */}
+            {/* Scenario Setup Tab */}
             {activeTab === 'simulations' && currentView === 'list' && (
             <div className="bg-white rounded-lg shadow-md p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-900">Simulation Setups</h2>
+                <h2 className="text-xl font-semibold text-gray-900">Scenario Setups</h2>
                 <button
                   type="button"
                   className="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-md hover:bg-green-700"
@@ -519,7 +578,7 @@ export default function Page() {
 
               {setups.length === 0 ? (
                 <div className="min-h-[320px] rounded-lg border border-dashed border-gray-300 flex flex-col items-center justify-center text-center px-4">
-                  <p className="text-base font-medium text-gray-700">No simulation setups found.</p>
+                  <p className="text-base font-medium text-gray-700">No scenario setups found.</p>
                   <button
                     type="button"
                     className="mt-4 px-5 py-2.5 bg-blue-600 text-white font-semibold rounded-md hover:bg-blue-700"
@@ -528,80 +587,100 @@ export default function Page() {
                       setCurrentView('editor')
                     }}
                   >
-                    Create New Simulation
+                    Create New Scenario
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {setups.map((setup) => (
-                    <div key={setup.code} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                      <p className="font-semibold text-gray-800">{setup.title || 'Untitled'}</p>
-                      {setup.description && (
-                        <p className="text-sm text-gray-600 mt-2 line-clamp-3">{setup.description}</p>
-                      )}
-                      <div className="mt-3 space-y-1 text-xs text-gray-600">
-                        <p>
-                          Availability:{' '}
-                          {(() => {
-                            const visibility = setup.visibility || (setup.assignedCohortId ? 'cohort' : 'global')
-                            if (visibility === 'cohort' && setup.assignedCohortId) {
-                              const cohortName = cohorts.find((c) => c.id === setup.assignedCohortId)?.name || 'Unknown Class'
-                              return `Cohort - ${cohortName}`
-                            }
-                            if (visibility === 'private') return 'Private'
-                            return 'Global'
-                          })()}
-                        </p>
-                        <p>Practice: {setup.isPracticeMode ? 'Yes' : 'No'}</p>
-                        <p>Voice: {setup.patientVoice || DEFAULT_PATIENT_VOICE}</p>
-                        <p>AI Mode: {setup.knowledgeBaseMode === 'strict_rag' ? 'Document Grounded' : 'Standard'}</p>
-                        <p>Rubric Criteria: {Array.isArray(setup.rubric) ? setup.rubric.length : 0}</p>
-                      </div>
-                      <div className="mt-4 flex items-center justify-between gap-2">
-                        <button
-                          type="button"
-                          className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
-                          onClick={() => {
-                            setSelectedSimId(setup.code)
-                            setCurrentView('editor')
-                          }}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          className="px-3 py-1.5 text-sm text-indigo-700 bg-indigo-100 rounded-md hover:bg-indigo-200"
-                          onClick={() => {
-                            setDuplicateTargetId(setup.code)
-                            setNewSimTitle(`${setup.title || 'Untitled'} (Copy)`)
-                            setIsDuplicateModalOpen(true)
-                          }}
-                        >
-                          Duplicate
-                        </button>
-                        <button
-                          type="button"
-                          className="px-3 py-1.5 text-sm text-red-700 bg-red-100 rounded-md hover:bg-red-200"
-                          onClick={() => deleteSetup(setup.code)}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                <div className="space-y-8">
+                  {[
+                    { key: 'clinical', title: 'Clinical Simulators', setups: clinicalSetups },
+                    { key: 'tutor', title: 'Socratic Tutors', setups: tutorSetups },
+                    { key: 'assistant', title: 'Course Assistants', setups: assistantSetups },
+                  ].map((group) =>
+                    group.setups.length > 0 ? (
+                      <section key={group.key} className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                        <div className="mb-3 flex items-center justify-between">
+                          <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-700">{group.title}</h3>
+                          <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 border border-gray-200">
+                            {group.setups.length}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                          {group.setups.map((setup) => (
+                            <div key={setup.code} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                              <p className="font-semibold text-gray-800">{setup.title || 'Untitled'}</p>
+                              {setup.description && (
+                                <p className="text-sm text-gray-600 mt-2 line-clamp-3">{setup.description}</p>
+                              )}
+                              <div className="mt-3 space-y-1 text-xs text-gray-600">
+                                <p>
+                                  Availability:{' '}
+                                  {(() => {
+                                    const visibility = setup.visibility || (setup.assignedCohortId ? 'cohort' : 'global')
+                                    if (visibility === 'cohort' && setup.assignedCohortId) {
+                                      const cohortName = cohorts.find((c) => c.id === setup.assignedCohortId)?.name || 'Unknown Class'
+                                      return `Cohort - ${cohortName}`
+                                    }
+                                    if (visibility === 'private') return 'Private'
+                                    return 'Global'
+                                  })()}
+                                </p>
+                                <p>Practice: {setup.isPracticeMode ? 'Yes' : 'No'}</p>
+                                <p>Archetype: {getArchetypeLabel(setup.archetype)}</p>
+                                <p>Voice: {setup.patientVoice || DEFAULT_PATIENT_VOICE}</p>
+                                <p>Target Cohorts: {normalizeTargetCohorts(setup.targetCohorts).join(', ')}</p>
+                                <p>AI Mode: {setup.knowledgeBaseMode === 'strict_rag' ? 'Document Grounded' : 'Standard'}</p>
+                                <p>Rubric Criteria: {Array.isArray(setup.rubric) ? setup.rubric.length : 0}</p>
+                              </div>
+                              <div className="mt-4 flex items-center justify-between gap-2">
+                                <button
+                                  type="button"
+                                  className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
+                                  onClick={() => {
+                                    setSelectedSimId(setup.code)
+                                    setCurrentView('editor')
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="px-3 py-1.5 text-sm text-indigo-700 bg-indigo-100 rounded-md hover:bg-indigo-200"
+                                  onClick={() => {
+                                    setDuplicateTargetId(setup.code)
+                                    setNewSimTitle(`${setup.title || 'Untitled'} (Copy)`)
+                                    setIsDuplicateModalOpen(true)
+                                  }}
+                                >
+                                  Duplicate
+                                </button>
+                                <button
+                                  type="button"
+                                  className="px-3 py-1.5 text-sm text-red-700 bg-red-100 rounded-md hover:bg-red-200"
+                                  onClick={() => deleteSetup(setup.code)}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </section>
+                    ) : null,
+                  )}
                 </div>
               )}
 
               {isDuplicateModalOpen && (
                 <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
                   <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-                    <h3 className="text-lg font-semibold text-gray-900">Duplicate Simulation</h3>
-                    <p className="mt-1 text-sm text-gray-600">New Simulation Name</p>
+                    <h3 className="text-lg font-semibold text-gray-900">Duplicate Scenario</h3>
+                    <p className="mt-1 text-sm text-gray-600">New Scenario Name</p>
                     <input
                       value={newSimTitle}
                       onChange={(e) => setNewSimTitle(e.target.value)}
                       className="mt-2 w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Enter new simulation name"
+                      placeholder="Enter new scenario name"
                     />
                     <div className="mt-5 flex items-center justify-end gap-2">
                       <button
@@ -638,6 +717,48 @@ export default function Page() {
               </button>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div>
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Agent Archetype</label>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      {ARCHETYPE_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            setDraftSim((prev) => {
+                              const nextPrompt =
+                                option.value === 'assistant' &&
+                                (prev.prompt.trim().length === 0 || prev.prompt === defaultDraftSim.prompt)
+                                  ? DEFAULT_ASSISTANT_PROMPT
+                                  : prev.prompt
+                              return {
+                                ...prev,
+                                archetype: option.value,
+                                prompt: nextPrompt,
+                                knowledgeBaseMode:
+                                  option.value === 'tutor' || option.value === 'assistant'
+                                    ? 'strict_rag'
+                                    : prev.knowledgeBaseMode,
+                              }
+                            })
+                            if (option.value === 'tutor') {
+                              setIsDocumentUploadsOpen(true)
+                            }
+                            setIsDirty(true)
+                          }}
+                          className={`rounded-md border px-3 py-3 text-left transition-colors ${
+                            draftSim.archetype === option.value
+                              ? 'border-blue-600 bg-blue-50'
+                              : 'border-gray-200 bg-white hover:border-gray-300'
+                          }`}
+                        >
+                          <p className="text-sm font-semibold text-gray-900">{option.title}</p>
+                          <p className="mt-1 text-xs text-gray-600">{option.description}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
                     <input
@@ -647,8 +768,28 @@ export default function Page() {
                         setIsDirty(true)
                       }}
                       className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
-                      placeholder="e.g., Customer Service Simulation"
+                      placeholder="e.g., Customer Service Scenario"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Target Cohorts</label>
+                    <input
+                      value={normalizeTargetCohorts(draftSim.targetCohorts).join(', ')}
+                      onChange={(e) => {
+                        const parsed = e.target.value
+                          .split(',')
+                          .map((item) => item.trim())
+                          .filter((item) => item.length > 0)
+                        setDraftSim((prev) => ({ ...prev, targetCohorts: parsed.length > 0 ? Array.from(new Set(parsed)) : ['global'] }))
+                        setIsDirty(true)
+                      }}
+                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+                      placeholder="global, summer-2026-NAI611"
+                    />
+                    <p className="text-xs text-gray-500 mb-4">
+                      Enter one or more cohort tags to target this scenario experience.
+                    </p>
                   </div>
 
                   <div>
@@ -690,7 +831,7 @@ export default function Page() {
                     </select>
                     {cohorts.length === 0 && (
                       <p className="text-sm text-gray-500 mb-4">
-                        No classes available. Create a class in the Class Management section to assign simulations.
+                        No classes available. Create a class in the Class Management section to assign scenarios.
                       </p>
                     )}
                   </div>
@@ -709,7 +850,7 @@ export default function Page() {
                       Practice Mode (Ungraded)
                     </label>
                     <p className="mt-1 text-xs text-gray-600">
-                      Practice simulations always remain available for fresh attempts and are not treated as graded submissions.
+                      Practice scenarios always remain available for fresh attempts and are not treated as graded submissions.
                     </p>
                   </div>
 
@@ -749,7 +890,13 @@ export default function Page() {
                   </div>
 
                   {draftSim.knowledgeBaseMode === 'strict_rag' && (
-                    <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-4">
+                    <div
+                      className={`mb-4 rounded-md p-4 ${
+                        draftSim.archetype === 'tutor'
+                          ? 'border-2 border-amber-300 bg-amber-50'
+                          : 'border border-blue-200 bg-blue-50'
+                      }`}
+                    >
                       <button
                         type="button"
                         onClick={() => setIsDocumentUploadsOpen((prev) => !prev)}
@@ -762,8 +909,13 @@ export default function Page() {
                       {isDocumentUploadsOpen && (
                         <>
                           <p className="mt-2 text-xs text-blue-700">
-                            Uploaded files are bound to this simulation and used as the only retrieval context during chat.
+                            Uploaded files are bound to this scenario and used as the only retrieval context during chat.
                           </p>
+                          {draftSim.archetype === 'tutor' && (
+                            <p className="mt-1 text-xs text-amber-800 font-medium">
+                              Socratic Tutor mode is document-first. Upload curriculum materials to ground responses.
+                            </p>
+                          )}
                           <p className="mt-1 text-xs text-blue-700">Maximum file size: {MAX_DOCUMENT_SIZE_MB}MB per file.</p>
                           <input type="hidden" name="simulationId" value={selectedSimId || ''} readOnly />
                           <div className="mt-3">
@@ -775,7 +927,7 @@ export default function Page() {
                               className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white hover:file:bg-blue-700 disabled:opacity-60"
                             />
                             {!selectedSimId && (
-                              <p className="mt-2 text-xs text-amber-700">Save this simulation first to enable document uploads.</p>
+                              <p className="mt-2 text-xs text-amber-700">Save this scenario first to enable document uploads.</p>
                             )}
                             {isUploadingDocument && <p className="mt-2 text-xs text-blue-700">Uploading documents...</p>}
                             {documentUploadError && <p className="mt-2 text-xs text-red-700">{documentUploadError}</p>}
@@ -824,23 +976,25 @@ export default function Page() {
                     </div>
                   )}
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Patient Voice</label>
-                    <select
-                      value={draftSim.patientVoice || DEFAULT_PATIENT_VOICE}
-                      onChange={(e) => {
-                        setDraftSim((prev) => ({ ...prev, patientVoice: e.target.value }))
-                        setIsDirty(true)
-                      }}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
-                    >
-                      {PATIENT_VOICE_OPTIONS.map((voice) => (
-                        <option key={voice.value} value={voice.value}>
-                          {voice.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {draftSim.archetype === 'clinical' && (
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Patient Voice</label>
+                      <select
+                        value={draftSim.patientVoice || DEFAULT_PATIENT_VOICE}
+                        onChange={(e) => {
+                          setDraftSim((prev) => ({ ...prev, patientVoice: e.target.value }))
+                          setIsDirty(true)
+                        }}
+                        className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
+                      >
+                        {PATIENT_VOICE_OPTIONS.map((voice) => (
+                          <option key={voice.value} value={voice.value}>
+                            {voice.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   <label className="block text-sm font-medium text-gray-700 mb-1">Scenario Prompt</label>
                   <textarea
@@ -852,6 +1006,7 @@ export default function Page() {
                     className="w-full h-64 p-4 border rounded-md resize-y focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g., You are a customer service representative for a clothing store..."
                   />
+                  {draftSim.archetype === 'clinical' && (
                   <div className="mt-6 border border-gray-200 rounded-md p-4 bg-gray-50">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-gray-900">Conversation Starters</h3>
@@ -903,6 +1058,7 @@ export default function Page() {
                       </div>
                     )}
                   </div>
+                  )}
                   <div className="mt-6 border border-gray-200 rounded-md p-4 bg-gray-50">
                     <div className="flex items-center justify-between mb-3">
                       <button
@@ -998,7 +1154,7 @@ export default function Page() {
                   {isDirty && (
                     <div className="mt-4 bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4" role="alert">
                       <p className="font-bold">Warning</p>
-                      <p>You have unsaved changes to the simulation setup. Save the setup to apply them.</p>
+                      <p>You have unsaved changes to the scenario setup. Save the setup to apply them.</p>
                     </div>
                   )}
                   <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1039,6 +1195,12 @@ export default function Page() {
             <div className="bg-white rounded-lg shadow-md p-6">
               <NeedsReviewDashboard />
             </div>
+            )}
+              </>
+            )}
+
+            {studioTab === 'userManagement' && (
+              <UserDashboard currentUserRole={userRole} />
             )}
           </div>
         </div>
