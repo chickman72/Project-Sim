@@ -5,10 +5,15 @@ import { logAdminAction } from '../../../lib/audit-log'
 import { getCohortById } from '../../../lib/cohort'
 
 type SimulationVisibility = 'global' | 'cohort' | 'private'
+type KnowledgeBaseMode = 'standard' | 'strict_rag'
 type RubricCriterion = {
   id: string
   name: string
   successCondition: string
+}
+type UploadedSimulationDocument = {
+  fileName: string
+  blobUrl: string
 }
 const DEFAULT_PATIENT_VOICE = 'en-US-JennyNeural'
 
@@ -35,7 +40,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (req.method === 'POST') {
       // Create or update a setup
-      const { code, title, description, prompt, patientVoice, assignedCohortId, visibility, isPracticeMode, rubric, conversationStarters } = req.body
+      const {
+        code,
+        title,
+        description,
+        prompt,
+        patientVoice,
+        assignedCohortId,
+        visibility,
+        isPracticeMode,
+        rubric,
+        conversationStarters,
+        knowledgeBaseMode,
+        uploadedDocuments,
+      } = req.body
       if (!code || !prompt) {
         return res.status(400).json({ error: 'code and prompt are required' })
       }
@@ -95,6 +113,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           ? patientVoice.trim()
           : DEFAULT_PATIENT_VOICE
 
+      let normalizedKnowledgeBaseMode: KnowledgeBaseMode = 'standard'
+      if (knowledgeBaseMode === 'strict_rag') {
+        normalizedKnowledgeBaseMode = 'strict_rag'
+      } else if (knowledgeBaseMode === 'standard' || typeof knowledgeBaseMode === 'undefined') {
+        normalizedKnowledgeBaseMode = 'standard'
+      } else {
+        return res.status(400).json({ error: 'knowledgeBaseMode must be one of: standard, strict_rag' })
+      }
+
+      const normalizedUploadedDocuments: UploadedSimulationDocument[] = Array.isArray(uploadedDocuments)
+        ? uploadedDocuments
+            .map((item: any) => ({
+              fileName: String(item?.fileName || '').trim(),
+              blobUrl: String(item?.blobUrl || '').trim(),
+            }))
+            .filter((item: UploadedSimulationDocument) => item.fileName && item.blobUrl)
+        : []
+
       const container = await getSetupsContainer()
       
       // Check if setup already exists to determine action type
@@ -118,6 +154,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         isPracticeMode: Boolean(isPracticeMode),
         conversationStarters: normalizedConversationStarters,
         rubric: normalizedRubric,
+        knowledgeBaseMode: normalizedKnowledgeBaseMode,
+        uploadedDocuments: normalizedUploadedDocuments,
         userId: session.userId,
         updatedAt: new Date().toISOString()
       }

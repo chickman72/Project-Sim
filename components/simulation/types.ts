@@ -9,6 +9,11 @@ export type RubricCriterion = {
   successCondition: string
 }
 
+export type UploadedSimulationDocument = {
+  fileName: string
+  blobUrl: string
+}
+
 export type DraftSimulation = {
   title: string
   description: string
@@ -19,4 +24,6 @@ export type DraftSimulation = {
   isPracticeMode: boolean
   conversationStarters: string[]
   rubric: RubricCriterion[]
+  knowledgeBaseMode: 'standard' | 'strict_rag'
+  uploadedDocuments?: UploadedSimulationDocument[]
 }

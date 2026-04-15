@@ -2,6 +2,8 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSessionCookieName, verifySessionToken } from '../../lib/auth'
 import { toAuditJson, writeAuditRecord, type CompletionStatus } from '../../lib/audit-log'
 import { getPrimaryCohortIdForUser, logTelemetryEvent } from '../../lib/telemetry'
+import { getSetupsContainer } from '../../lib/cosmos'
+import { retrieveSimulationContext } from '../../lib/azure-rag'
 
 const DEFAULT_LLMLITE_URL =
   'https://proxy-ai-anes-uabmc-awefchfueccrddhf.eastus2-01.azurewebsites.net/'
@@ -84,8 +86,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
+  let strictRagApplied = false
+  let retrievedChunks = ''
+  const normalizedScenarioId =
+    typeof scenarioId === 'string' && scenarioId.trim().length > 0 ? scenarioId.trim() : undefined
+
+  if (normalizedScenarioId) {
+    try {
+      const setupsContainer = await getSetupsContainer()
+      const { resource: simulation } = await setupsContainer.item(normalizedScenarioId, normalizedScenarioId).read()
+      if (simulation && simulation.knowledgeBaseMode === 'strict_rag') {
+        strictRagApplied = true
+        retrievedChunks = await retrieveSimulationContext(userMessage, normalizedScenarioId)
+      }
+    } catch (ragErr) {
+      console.error('Strict RAG retrieval failed:', ragErr)
+    }
+  }
+
   const messages: Msg[] = []
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+  if (strictRagApplied) {
+    messages.push({
+      role: 'system',
+      content:
+        'You are acting as a clinical simulation patient/preceptor. You must ONLY answer using the provided document context below. If the answer is not in the documents, state that you do not know. \n\nCONTEXT:\n' +
+        (retrievedChunks || '[No matching document context found for this simulation.]'),
+    })
+  }
   if (Array.isArray(history)) {
     for (const m of history) {
       if (m && typeof m.role === 'string' && typeof m.content === 'string') {
@@ -149,6 +177,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           messagesJson: toAuditJson(messages),
           requestJson: toAuditJson({
             systemPrompt: systemPrompt ?? null,
+            strictRagApplied,
+            strictRagContextLength: retrievedChunks.length,
             historyCount: Array.isArray(history) ? history.length : 0,
             userMessage,
             inputMethod: isInputMethod(inputMethod) ? inputMethod : undefined,
@@ -201,6 +231,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         messagesJson: toAuditJson(messages),
         requestJson: toAuditJson({
           systemPrompt: systemPrompt ?? null,
+          strictRagApplied,
+          strictRagContextLength: retrievedChunks.length,
           historyCount: Array.isArray(history) ? history.length : 0,
           userMessage,
           inputMethod: isInputMethod(inputMethod) ? inputMethod : undefined,
@@ -256,6 +288,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         messagesJson: toAuditJson(messages),
         requestJson: toAuditJson({
           systemPrompt: systemPrompt ?? null,
+          strictRagApplied,
+          strictRagContextLength: retrievedChunks.length,
           historyCount: Array.isArray(history) ? history.length : 0,
           userMessage,
           inputMethod: isInputMethod(inputMethod) ? inputMethod : undefined,

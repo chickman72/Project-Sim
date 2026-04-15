@@ -5,8 +5,8 @@ import { useRouter } from 'next/navigation'
 import CohortManager from '../../components/CohortManager'
 import NeedsReviewDashboard from '../../components/NeedsReviewDashboard'
 import SimulationPreview from '../../components/simulation/SimulationPreview'
-import type { DraftSimulation, RubricCriterion } from '../../components/simulation/types'
-import { duplicateSimulation } from './actions'
+import type { DraftSimulation, RubricCriterion, UploadedSimulationDocument } from '../../components/simulation/types'
+import { deleteSimulationDocument, duplicateSimulation, uploadSimulationDocument } from './actions'
 
 type SimulationVisibility = 'global' | 'cohort' | 'private'
 type Simulation = {
@@ -20,9 +20,13 @@ type Simulation = {
   isPracticeMode?: boolean
   conversationStarters?: string[]
   rubric?: RubricCriterion[]
+  knowledgeBaseMode?: 'standard' | 'strict_rag'
+  uploadedDocuments?: UploadedSimulationDocument[]
 }
 
 const DEFAULT_PATIENT_VOICE = 'en-US-JennyNeural'
+const MAX_DOCUMENT_SIZE_MB = 50
+const MAX_DOCUMENT_SIZE_BYTES = MAX_DOCUMENT_SIZE_MB * 1024 * 1024
 const PATIENT_VOICE_OPTIONS = [
   { value: 'en-US-JennyNeural', label: 'en-US-JennyNeural (Female)' },
   { value: 'en-US-GuyNeural', label: 'en-US-GuyNeural (Male)' },
@@ -40,6 +44,8 @@ const defaultDraftSim: DraftSimulation = {
   isPracticeMode: false,
   conversationStarters: [],
   rubric: [],
+  knowledgeBaseMode: 'standard',
+  uploadedDocuments: [],
 }
 
 export default function Page() {
@@ -64,6 +70,10 @@ export default function Page() {
   const [duplicateTargetId, setDuplicateTargetId] = useState<string | null>(null)
   const [newSimTitle, setNewSimTitle] = useState('')
   const [isDuplicating, setIsDuplicating] = useState(false)
+  const [isUploadingDocument, setIsUploadingDocument] = useState(false)
+  const [deletingDocumentUrl, setDeletingDocumentUrl] = useState<string | null>(null)
+  const [documentUploadError, setDocumentUploadError] = useState<string | null>(null)
+  const [isDocumentUploadsOpen, setIsDocumentUploadsOpen] = useState(true)
 
   const loadConfigData = async () => {
     try {
@@ -85,6 +95,15 @@ export default function Page() {
             ? s.conversationStarters.map((v: any) => String(v || ''))
             : [],
           rubric: Array.isArray(s.rubric) ? s.rubric : [],
+          knowledgeBaseMode: s.knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
+          uploadedDocuments: Array.isArray(s.uploadedDocuments)
+            ? s.uploadedDocuments
+                .map((item: any) => ({
+                  fileName: String(item?.fileName || '').trim(),
+                  blobUrl: String(item?.blobUrl || '').trim(),
+                }))
+                .filter((item: UploadedSimulationDocument) => item.fileName && item.blobUrl)
+            : [],
         }))
         setSetups(setupsWithTitles)
       }
@@ -151,6 +170,8 @@ export default function Page() {
       isPracticeMode: Boolean(setup.isPracticeMode),
       conversationStarters: Array.isArray(setup.conversationStarters) ? setup.conversationStarters : [],
       rubric: Array.isArray(setup.rubric) ? setup.rubric : [],
+      knowledgeBaseMode: setup.knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
+      uploadedDocuments: Array.isArray(setup.uploadedDocuments) ? setup.uploadedDocuments : [],
     })
     setIsDirty(false)
   }
@@ -194,6 +215,8 @@ export default function Page() {
       isPracticeMode: draftSim.isPracticeMode,
       conversationStarters: draftSim.conversationStarters,
       rubric: draftSim.rubric,
+      knowledgeBaseMode: draftSim.knowledgeBaseMode,
+      uploadedDocuments: draftSim.uploadedDocuments || [],
     }
     
     // Add assignedCohortId only for cohort visibility.
@@ -216,6 +239,133 @@ export default function Page() {
       setIsDirty(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error saving setup')
+    }
+  }
+
+  const handleSimulationDocumentUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files ? Array.from(event.target.files) : []
+    event.target.value = ''
+
+    if (files.length === 0) return
+    const oversizedFiles = files.filter((file) => file.size > MAX_DOCUMENT_SIZE_BYTES)
+    if (oversizedFiles.length > 0) {
+      const tooLargeNames = oversizedFiles.map((file) => file.name).join(', ')
+      setDocumentUploadError(
+        `File size too large. Maximum is ${MAX_DOCUMENT_SIZE_MB}MB per file. Remove: ${tooLargeNames}`,
+      )
+      return
+    }
+
+    setDocumentUploadError(null)
+    if (!selectedSimId) {
+      setError('Save the simulation first before uploading documents.')
+      return
+    }
+
+    try {
+      setError(null)
+      setIsUploadingDocument(true)
+
+      const existingDocuments = Array.isArray(draftSim.uploadedDocuments) ? draftSim.uploadedDocuments : []
+      const filesToUpload: File[] = []
+      const documentsToReplace: UploadedSimulationDocument[] = []
+
+      for (const file of files) {
+        const duplicates = existingDocuments.filter(
+          (doc) => doc.fileName.trim().toLowerCase() === file.name.trim().toLowerCase(),
+        )
+
+        if (duplicates.length === 0) {
+          filesToUpload.push(file)
+          continue
+        }
+
+        const shouldReplace = window.confirm(
+          `"${file.name}" is already uploaded for this simulation.\n\nSelect OK to replace it, or Cancel to skip this file.`,
+        )
+
+        if (shouldReplace) {
+          filesToUpload.push(file)
+          documentsToReplace.push(...duplicates)
+        }
+      }
+
+      if (filesToUpload.length === 0) {
+        setDocumentUploadError('No new files were uploaded. Duplicate files were skipped.')
+        return
+      }
+
+      const uniqueDocumentsToReplace = Array.from(
+        new Map(documentsToReplace.map((doc) => [doc.blobUrl, doc])).values(),
+      )
+
+      for (const doc of uniqueDocumentsToReplace) {
+        await deleteSimulationDocument(selectedSimId, doc.blobUrl, draftSim.knowledgeBaseMode)
+      }
+
+      const formData = new FormData()
+      for (const file of filesToUpload) {
+        formData.append('files', file)
+      }
+      const uploaded = await uploadSimulationDocument(selectedSimId, formData, draftSim.knowledgeBaseMode)
+      const removedBlobUrls = new Set(uniqueDocumentsToReplace.map((doc) => doc.blobUrl))
+
+      setDraftSim((prev) => ({
+        ...prev,
+        uploadedDocuments: [
+          ...(prev.uploadedDocuments || []).filter((doc) => !removedBlobUrls.has(doc.blobUrl)),
+          ...uploaded,
+        ],
+      }))
+      setSetups((prev) =>
+        prev.map((setup) =>
+          setup.code === selectedSimId
+            ? {
+                ...setup,
+                knowledgeBaseMode: draftSim.knowledgeBaseMode,
+                uploadedDocuments: [
+                  ...(setup.uploadedDocuments || []).filter((doc) => !removedBlobUrls.has(doc.blobUrl)),
+                  ...uploaded,
+                ],
+              }
+            : setup,
+        ),
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error uploading document')
+      setDocumentUploadError(err instanceof Error ? err.message : 'Error uploading document')
+    } finally {
+      setIsUploadingDocument(false)
+    }
+  }
+
+  const handleSimulationDocumentDelete = async (blobUrl: string) => {
+    if (!selectedSimId) return
+
+    try {
+      setError(null)
+      setDeletingDocumentUrl(blobUrl)
+      await deleteSimulationDocument(selectedSimId, blobUrl, draftSim.knowledgeBaseMode)
+
+      setDraftSim((prev) => ({
+        ...prev,
+        uploadedDocuments: (prev.uploadedDocuments || []).filter((item) => item.blobUrl !== blobUrl),
+      }))
+      setSetups((prev) =>
+        prev.map((setup) =>
+          setup.code === selectedSimId
+            ? {
+                ...setup,
+                knowledgeBaseMode: draftSim.knowledgeBaseMode,
+                uploadedDocuments: (setup.uploadedDocuments || []).filter((item) => item.blobUrl !== blobUrl),
+              }
+            : setup,
+        ),
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error deleting document')
+    } finally {
+      setDeletingDocumentUrl(null)
     }
   }
 
@@ -404,6 +554,7 @@ export default function Page() {
                         </p>
                         <p>Practice: {setup.isPracticeMode ? 'Yes' : 'No'}</p>
                         <p>Voice: {setup.patientVoice || DEFAULT_PATIENT_VOICE}</p>
+                        <p>AI Mode: {setup.knowledgeBaseMode === 'strict_rag' ? 'Document Grounded' : 'Standard'}</p>
                         <p>Rubric Criteria: {Array.isArray(setup.rubric) ? setup.rubric.length : 0}</p>
                       </div>
                       <div className="mt-4 flex items-center justify-between gap-2">
@@ -561,6 +712,117 @@ export default function Page() {
                       Practice simulations always remain available for fresh attempts and are not treated as graded submissions.
                     </p>
                   </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">AI Mode</label>
+                    <div className="mb-4 rounded-md border border-gray-200 bg-gray-50 p-3 space-y-2">
+                      <label className="flex items-center gap-2 text-sm text-gray-800">
+                        <input
+                          type="radio"
+                          name="knowledge-base-mode"
+                          value="standard"
+                          checked={draftSim.knowledgeBaseMode === 'standard'}
+                          onChange={() => {
+                            setDraftSim((prev) => ({ ...prev, knowledgeBaseMode: 'standard' }))
+                            setIsDirty(true)
+                          }}
+                          className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Standard (LLM Knowledge)
+                      </label>
+                      <label className="flex items-center gap-2 text-sm text-gray-800">
+                        <input
+                          type="radio"
+                          name="knowledge-base-mode"
+                          value="strict_rag"
+                          checked={draftSim.knowledgeBaseMode === 'strict_rag'}
+                          onChange={() => {
+                            setDraftSim((prev) => ({ ...prev, knowledgeBaseMode: 'strict_rag' }))
+                            setIsDocumentUploadsOpen(true)
+                            setIsDirty(true)
+                          }}
+                          className="h-4 w-4 border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Document Grounded (Strict RAG)
+                      </label>
+                    </div>
+                  </div>
+
+                  {draftSim.knowledgeBaseMode === 'strict_rag' && (
+                    <div className="mb-4 rounded-md border border-blue-200 bg-blue-50 p-4">
+                      <button
+                        type="button"
+                        onClick={() => setIsDocumentUploadsOpen((prev) => !prev)}
+                        className="w-full flex items-center justify-between text-left"
+                      >
+                        <h3 className="text-sm font-semibold text-blue-900">Document Uploads</h3>
+                        <span className="text-xs font-semibold text-blue-800">{isDocumentUploadsOpen ? 'Hide' : 'Show'}</span>
+                      </button>
+
+                      {isDocumentUploadsOpen && (
+                        <>
+                          <p className="mt-2 text-xs text-blue-700">
+                            Uploaded files are bound to this simulation and used as the only retrieval context during chat.
+                          </p>
+                          <p className="mt-1 text-xs text-blue-700">Maximum file size: {MAX_DOCUMENT_SIZE_MB}MB per file.</p>
+                          <input type="hidden" name="simulationId" value={selectedSimId || ''} readOnly />
+                          <div className="mt-3">
+                            <input
+                              type="file"
+                              multiple
+                              onChange={handleSimulationDocumentUpload}
+                              disabled={!selectedSimId || isUploadingDocument}
+                              className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-blue-600 file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-white hover:file:bg-blue-700 disabled:opacity-60"
+                            />
+                            {!selectedSimId && (
+                              <p className="mt-2 text-xs text-amber-700">Save this simulation first to enable document uploads.</p>
+                            )}
+                            {isUploadingDocument && <p className="mt-2 text-xs text-blue-700">Uploading documents...</p>}
+                            {documentUploadError && <p className="mt-2 text-xs text-red-700">{documentUploadError}</p>}
+                          </div>
+
+                          <div className="mt-4">
+                            {Array.isArray(draftSim.uploadedDocuments) && draftSim.uploadedDocuments.length > 0 ? (
+                              <div className="space-y-2">
+                                {draftSim.uploadedDocuments.map((doc) => (
+                                  <div
+                                    key={doc.blobUrl}
+                                    className="flex items-center justify-between gap-3 rounded-md border border-blue-100 bg-white px-3 py-2"
+                                  >
+                                    <a
+                                      href={doc.blobUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-sm text-blue-700 hover:underline break-all"
+                                    >
+                                      {doc.fileName}
+                                    </a>
+                                    <button
+                                      type="button"
+                                      title="Delete document"
+                                      onClick={() => handleSimulationDocumentDelete(doc.blobUrl)}
+                                      disabled={deletingDocumentUrl === doc.blobUrl}
+                                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-60"
+                                    >
+                                      <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                                        <path
+                                          fillRule="evenodd"
+                                          d="M8.5 2a1 1 0 00-1 1V4H5a1 1 0 100 2h.293l.853 9.386A2 2 0 008.137 17h3.726a2 2 0 001.99-1.614L14.707 6H15a1 1 0 100-2h-2.5V3a1 1 0 00-1-1h-3zM9 4V3h2v1H9zm-.845 2h3.69l-.77 8.47a.5.5 0 01-.497.43H9.422a.5.5 0 01-.497-.43L8.155 6z"
+                                          clipRule="evenodd"
+                                        />
+                                      </svg>
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-blue-700">No documents uploaded yet.</p>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Patient Voice</label>

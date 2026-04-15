@@ -5,12 +5,19 @@ import { revalidatePath } from 'next/cache'
 import { getSetupsContainer } from '../../lib/cosmos'
 import { getSessionCookieName, verifySessionToken } from '../../lib/auth'
 import { logAdminAction } from '../../lib/audit-log'
+import {
+  deleteSimulationBlobByUrl,
+  uploadSimulationDocumentToBlob,
+  type UploadedSimulationDocument,
+} from '../../lib/azure-rag'
 
 type RubricCriterion = {
   id: string
   name: string
   successCondition: string
 }
+
+type KnowledgeBaseMode = 'standard' | 'strict_rag'
 
 const generateCode = () => Math.random().toString(36).substring(2, 8).toUpperCase()
 
@@ -81,6 +88,9 @@ export async function duplicateSimulation(originalId: string, newTitle: string) 
           }))
           .filter((item: RubricCriterion) => item.id && item.name && item.successCondition)
       : [],
+    knowledgeBaseMode:
+      original.knowledgeBaseMode === 'strict_rag' ? ('strict_rag' as KnowledgeBaseMode) : ('standard' as KnowledgeBaseMode),
+    uploadedDocuments: [] as UploadedSimulationDocument[],
     userId: session.userId,
     updatedAt: new Date().toISOString(),
   }
@@ -95,4 +105,108 @@ export async function duplicateSimulation(originalId: string, newTitle: string) 
 
   revalidatePath('/config')
   return { id: duplicateCode, code: duplicateCode, title: targetTitle }
+}
+
+const assertInstructorSimulationAccess = async (simulationId: string) => {
+  const cookieStore = await cookies()
+  const token = cookieStore.get(getSessionCookieName())?.value
+  const session = verifySessionToken(token)
+
+  if (!session) throw new Error('Not authenticated')
+
+  const setupId = String(simulationId || '').trim()
+  if (!setupId) throw new Error('simulationId is required')
+
+  const container = await getSetupsContainer()
+  const { resource } = await container.item(setupId, setupId).read()
+  if (!resource) throw new Error('Simulation not found')
+
+  if (session.role !== 'Administrator' && resource.userId !== session.userId) {
+    throw new Error('You can only update your own simulations')
+  }
+
+  return { session, container, setupId, resource }
+}
+
+export async function uploadSimulationDocument(
+  simulationId: string,
+  formData: FormData,
+  knowledgeBaseMode: KnowledgeBaseMode = 'strict_rag',
+) {
+  const { container, setupId, resource } = await assertInstructorSimulationAccess(simulationId)
+  const multiFiles = formData
+    .getAll('files')
+    .filter((item): item is File => item instanceof File && item.size > 0)
+  const singleFile = formData.get('file')
+  const files =
+    multiFiles.length > 0
+      ? multiFiles
+      : singleFile instanceof File && singleFile.size > 0
+        ? [singleFile]
+        : []
+
+  if (files.length === 0) {
+    throw new Error('At least one file is required')
+  }
+
+  const uploaded = await Promise.all(files.map((file) => uploadSimulationDocumentToBlob(setupId, file)))
+  const currentDocuments = Array.isArray(resource.uploadedDocuments)
+    ? resource.uploadedDocuments
+        .map((item: any) => ({
+          fileName: String(item?.fileName || '').trim(),
+          blobUrl: String(item?.blobUrl || '').trim(),
+        }))
+        .filter((item: UploadedSimulationDocument) => item.fileName && item.blobUrl)
+    : []
+
+  const updatedDocuments = [...currentDocuments, ...uploaded]
+  await container.items.upsert({
+    ...resource,
+    knowledgeBaseMode: knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
+    uploadedDocuments: updatedDocuments,
+    updatedAt: new Date().toISOString(),
+  })
+
+  revalidatePath('/config')
+  return uploaded
+}
+
+export async function deleteSimulationDocument(
+  simulationId: string,
+  blobUrl: string,
+  knowledgeBaseMode?: KnowledgeBaseMode,
+) {
+  const { container, setupId, resource } = await assertInstructorSimulationAccess(simulationId)
+
+  const targetBlobUrl = String(blobUrl || '').trim()
+  if (!targetBlobUrl) throw new Error('blobUrl is required')
+
+  await deleteSimulationBlobByUrl(targetBlobUrl)
+
+  const currentDocuments = Array.isArray(resource.uploadedDocuments)
+    ? resource.uploadedDocuments
+        .map((item: any) => ({
+          fileName: String(item?.fileName || '').trim(),
+          blobUrl: String(item?.blobUrl || '').trim(),
+        }))
+        .filter((item: UploadedSimulationDocument) => item.fileName && item.blobUrl)
+    : []
+
+  const updatedDocuments = currentDocuments.filter(
+    (item: UploadedSimulationDocument) => item.blobUrl !== targetBlobUrl,
+  )
+  await container.items.upsert({
+    ...resource,
+    knowledgeBaseMode:
+      knowledgeBaseMode === 'strict_rag'
+        ? 'strict_rag'
+        : resource.knowledgeBaseMode === 'strict_rag'
+          ? 'strict_rag'
+          : 'standard',
+    uploadedDocuments: updatedDocuments,
+    updatedAt: new Date().toISOString(),
+  })
+
+  revalidatePath('/config')
+  return { success: true, simulationId: setupId, blobUrl: targetBlobUrl }
 }

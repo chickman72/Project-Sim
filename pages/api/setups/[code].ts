@@ -56,6 +56,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           title: resource.title,
           description: resource.description,
           prompt: resource.prompt,
+          knowledgeBaseMode: resource.knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
+          uploadedDocuments: Array.isArray(resource.uploadedDocuments)
+            ? resource.uploadedDocuments
+                .map((item: any) => ({
+                  fileName: String(item?.fileName || '').trim(),
+                  blobUrl: String(item?.blobUrl || '').trim(),
+                }))
+                .filter((item: { fileName: string; blobUrl: string }) => item.fileName && item.blobUrl)
+            : [],
           patientVoice:
             typeof resource.patientVoice === 'string' && resource.patientVoice.trim().length > 0
               ? resource.patientVoice.trim()
