@@ -1,4 +1,5 @@
 import React from 'react'
+import BrandLoader from '../BrandLoader'
 import type { ChatMessage } from './types'
 
 type Props = {
@@ -164,12 +165,7 @@ export default function SimulationChatInterface({
                 Listening...
               </span>
             )}
-            {loading && (
-              <span className="inline-flex items-center gap-2 text-blue-600">
-                <span className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-                AI is generating...
-              </span>
-            )}
+            {loading && <BrandLoader label="AI is generating..." className="text-blue-700" />}
             {isAiSpeaking && (
               <span className="inline-flex items-center gap-2 text-emerald-700">
                 <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />

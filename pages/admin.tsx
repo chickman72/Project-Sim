@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/router'
 import AnalyticsDashboard from '../components/AnalyticsDashboard'
+import BrandWordmark from '../components/BrandWordmark'
 
 interface User {
   id: string
@@ -278,7 +279,8 @@ export default function AdminPage() {
         <div className="flex flex-col gap-4 mb-8">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Admin Console</h1>
+              <BrandWordmark className="text-2xl" />
+              <h1 className="mt-1 text-3xl font-bold text-gray-900">Admin Console</h1>
               <p className="text-sm text-gray-500">Manage users or review simulation session analytics.</p>
             </div>
             <div className="flex items-center gap-3">

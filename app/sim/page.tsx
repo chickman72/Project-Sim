@@ -3,6 +3,7 @@
 import React, { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { create } from 'zustand'
+import BrandWordmark from '../../components/BrandWordmark'
 import TranscriptViewer from '../../components/TranscriptViewer'
 import SimulationHeader from '../../components/simulation/SimulationHeader'
 import SimulationSidebar from '../../components/simulation/SimulationSidebar'
@@ -1122,10 +1123,11 @@ export default function Page() {
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <div className="bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-2xl p-6 sm:p-8 shadow-sm mb-6">
+        <div className="bg-gradient-to-r from-brand-700 to-brand-500 text-white rounded-2xl p-6 sm:p-8 shadow-sm mb-6">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h1 className="text-2xl sm:text-3xl font-bold">Student Learning Hub</h1>
+              <BrandWordmark variant="light" className="text-2xl sm:text-3xl" />
+              <h1 className="mt-2 text-xl sm:text-2xl font-semibold">Student Learning Hub</h1>
               <p className="mt-2 text-blue-100 text-sm sm:text-base">
                 Launch your assigned simulations and review completed scenario transcripts.
               </p>

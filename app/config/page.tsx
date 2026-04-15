@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import CohortManager from '../../components/CohortManager'
 import NeedsReviewDashboard from '../../components/NeedsReviewDashboard'
+import BrandWordmark from '../../components/BrandWordmark'
 import SimulationPreview from '../../components/simulation/SimulationPreview'
 import UserDashboard from '../../components/UserDashboard'
 import type { DraftSimulation, RubricCriterion, UploadedSimulationDocument } from '../../components/simulation/types'
@@ -490,7 +491,10 @@ export default function Page() {
         }
       >
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900">Instructor Configuration</h1>
+          <div>
+            <BrandWordmark className="text-2xl" />
+            <p className="mt-1 text-sm text-slate-600">Instructor Studio</p>
+          </div>
           <div className="flex items-center gap-3">
             <UserBadge />
             <button
