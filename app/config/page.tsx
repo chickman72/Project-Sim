@@ -102,10 +102,22 @@ export default function Page() {
   const [deletingDocumentUrl, setDeletingDocumentUrl] = useState<string | null>(null)
   const [documentUploadError, setDocumentUploadError] = useState<string | null>(null)
   const [isDocumentUploadsOpen, setIsDocumentUploadsOpen] = useState(true)
+  const [isLivePreviewOpen, setIsLivePreviewOpen] = useState(false)
+
+  const refreshCohorts = React.useCallback(async () => {
+    try {
+      const cohortResp = await fetch('/api/cohorts', { cache: 'no-store' })
+      if (!cohortResp.ok) return
+      const cohortData = await cohortResp.json()
+      setCohorts(Array.isArray(cohortData) ? cohortData : [])
+    } catch {
+      // ignore
+    }
+  }, [])
 
   const loadConfigData = async () => {
     try {
-      const [setupResp, cohortResp] = await Promise.all([fetch('/api/setups'), fetch('/api/cohorts')])
+      const [setupResp, cohortResp] = await Promise.all([fetch('/api/setups'), fetch('/api/cohorts', { cache: 'no-store' })])
       if (setupResp.ok) {
         const data = await setupResp.json()
         const setupsWithTitles = data.map((s: any) => ({
@@ -155,6 +167,12 @@ export default function Page() {
     }
     loadConfigData()
   }, [userId])
+
+  useEffect(() => {
+    if (!userId) return
+    if (studioTab !== 'simulations' || activeTab !== 'simulations') return
+    void refreshCohorts()
+  }, [userId, studioTab, activeTab, refreshCohorts])
 
   useEffect(() => {
     ;(async () => {
@@ -712,14 +730,27 @@ export default function Page() {
 
             {activeTab === 'simulations' && currentView === 'editor' && (
             <div className="bg-white rounded-lg shadow-md p-6">
-              <button
-                type="button"
-                onClick={() => setCurrentView('list')}
-                className="mb-4 text-sm font-medium text-gray-600 hover:text-gray-900"
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCurrentView('list')}
+                  className="text-sm font-medium text-gray-600 hover:text-gray-900"
+                >
+                  &lt;- Back to Setups
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsLivePreviewOpen((prev) => !prev)}
+                  className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                >
+                  {isLivePreviewOpen ? 'Hide Live Student Preview' : 'Show Live Student Preview'}
+                </button>
+              </div>
+              <div
+                className={`grid grid-cols-1 gap-6 ${
+                  isLivePreviewOpen ? 'lg:grid-cols-2' : 'mx-auto w-full max-w-3xl'
+                }`}
               >
-                &lt;- Back to Setups
-              </button>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div>
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">Agent Archetype</label>
@@ -819,6 +850,9 @@ export default function Page() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">Availability</label>
                     <select
                       value={draftSim.visibility === 'cohort' ? `cohort:${draftSim.assignedCohortId || ''}` : draftSim.visibility}
+                      onFocus={() => {
+                        void refreshCohorts()
+                      }}
                       onChange={(e) => {
                         const value = e.target.value
                         if (value === 'global' || value === 'private') {
@@ -1191,9 +1225,14 @@ export default function Page() {
                     </button>
                   </div>
                 </div>
-                <div>
-                  <SimulationPreview draftSim={draftSim} />
-                </div>
+                {isLivePreviewOpen && (
+                  <div className="rounded-lg border border-gray-200 bg-white p-4">
+                    <h3 className="text-sm font-semibold text-gray-900">Live Student Preview</h3>
+                    <div className="mt-3">
+                      <SimulationPreview draftSim={draftSim} />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             )}

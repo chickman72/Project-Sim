@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { getSetupsContainer } from '../../../lib/cosmos'
 import { getSessionCookieName, verifySessionToken } from '../../../lib/auth'
 import { logAdminAction } from '../../../lib/audit-log'
-import { getCohortById } from '../../../lib/cohort'
+import { canManageCohort, getCohortById } from '../../../lib/cohort'
 
 type SimulationVisibility = 'global' | 'cohort' | 'private'
 type KnowledgeBaseMode = 'standard' | 'strict_rag'
@@ -85,7 +85,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return res.status(400).json({ error: 'Assigned cohort was not found' })
         }
 
-        if (session.role !== 'Administrator' && cohort.instructorId !== session.userId) {
+        if (session.role !== 'Administrator' && !canManageCohort(cohort, session.userId)) {
           return res.status(403).json({ error: 'You can only assign simulations to your own cohorts' })
         }
 

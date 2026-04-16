@@ -3,7 +3,8 @@ import { getSessionCookieName, verifySessionToken } from '../../../lib/auth'
 import { 
   getCohortById,
   updateCohort,
-  deleteCohort
+  deleteCohort,
+  canManageCohort,
 } from '../../../lib/cohort'
 import { logAdminAction } from '../../../lib/audit-log'
 
@@ -34,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       // Verify the cohort belongs to the instructor (or that the requester is an admin)
-      if (session.role !== 'Administrator' && cohort.instructorId !== session.userId) {
+      if (session.role !== 'Administrator' && !canManageCohort(cohort, session.userId)) {
         return res.status(403).json({ error: 'You can only view your own cohorts' })
       }
 
@@ -49,7 +50,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       // Verify the cohort belongs to the instructor
-      if (session.role !== 'Administrator' && cohort.instructorId !== session.userId) {
+      if (session.role !== 'Administrator' && !canManageCohort(cohort, session.userId)) {
         return res.status(403).json({ error: 'You can only update your own cohorts' })
       }
 
@@ -79,7 +80,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       // Verify the cohort belongs to the instructor
-      if (session.role !== 'Administrator' && cohort.instructorId !== session.userId) {
+      if (session.role !== 'Administrator' && !canManageCohort(cohort, session.userId)) {
         return res.status(403).json({ error: 'You can only delete your own cohorts' })
       }
 

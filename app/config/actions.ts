@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 import { getSetupsContainer } from '../../lib/cosmos'
 import { getSessionCookieName, verifySessionToken } from '../../lib/auth'
 import { logAdminAction } from '../../lib/audit-log'
-import { getCohortById } from '../../lib/cohort'
+import { canManageCohort, getCohortById } from '../../lib/cohort'
 import {
   deleteSimulationBlobByUrl,
   uploadSimulationDocumentToBlob,
@@ -81,7 +81,7 @@ export async function saveSimulation(input: SaveSimulationInput) {
     if (!cohortId) throw new Error('assignedCohortId is required when visibility is cohort')
     const cohort = await getCohortById(cohortId)
     if (!cohort) throw new Error('Assigned cohort was not found')
-    if (session.role !== 'Administrator' && cohort.instructorId !== session.userId) {
+    if (session.role !== 'Administrator' && !canManageCohort(cohort, session.userId)) {
       throw new Error('You can only assign simulations to your own cohorts')
     }
     assignedCohortId = cohortId

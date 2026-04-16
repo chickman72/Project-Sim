@@ -8,10 +8,17 @@ interface Student {
   email?: string
 }
 
+interface Instructor {
+  id: string
+  username: string
+  email?: string
+}
+
 interface Cohort {
   id: string
   name: string
   instructorId: string
+  instructorIds?: string[]
   studentIds: string[]
   createdAt: string
   updatedAt: string
@@ -25,6 +32,7 @@ interface CohortManagerProps {
 export default function CohortManager({ instructorId, onClose }: CohortManagerProps) {
   const [cohorts, setCohorts] = useState<Cohort[]>([])
   const [students, setStudents] = useState<Student[]>([])
+  const [instructors, setInstructors] = useState<Instructor[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -47,11 +55,17 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
         const cohortsData = await cohortsRes.json()
         setCohorts(cohortsData)
 
-        // Load students
-        const studentsRes = await fetch('/api/users?role=Student')
+        // Load students and instructors
+        const [studentsRes, instructorsRes] = await Promise.all([
+          fetch('/api/users?role=Student'),
+          fetch('/api/users?role=Instructor'),
+        ])
         if (!studentsRes.ok) throw new Error('Failed to load students')
+        if (!instructorsRes.ok) throw new Error('Failed to load instructors')
         const studentsData = await studentsRes.json()
+        const instructorsData = await instructorsRes.json()
         setStudents(studentsData)
+        setInstructors(instructorsData)
       } catch (err: any) {
         setError(err.message || 'Failed to load data')
       } finally {
@@ -204,6 +218,19 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
     return student ? student.username : studentId
   }
 
+  const getInstructorIds = (cohort: Cohort) => {
+    const normalized = Array.isArray(cohort.instructorIds)
+      ? Array.from(new Set(cohort.instructorIds.map((id) => String(id || '').trim()).filter((id) => id.length > 0)))
+      : []
+    if (normalized.length > 0) return normalized
+    return cohort.instructorId ? [cohort.instructorId] : []
+  }
+
+  const getInstructorName = (id: string) => {
+    const instructor = instructors.find((user) => user.id === id)
+    return instructor ? instructor.username : id
+  }
+
   const showToast = (message: string) => {
     setToastMessage(message)
     setTimeout(() => setToastMessage(null), 1800)
@@ -231,6 +258,48 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
       showToast('Copied!')
     } catch {
       showToast('Could not copy link')
+    }
+  }
+
+  const handleAddInstructor = async (cohortId: string, nextInstructorId: string) => {
+    try {
+      setError(null)
+      const res = await fetch('/api/cohorts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cohortId, instructorId: nextInstructorId, action: 'add_instructor' })
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to add instructor')
+      }
+
+      const updatedCohort = await res.json()
+      setCohorts(cohorts.map(c => c.id === cohortId ? updatedCohort : c))
+    } catch (err: any) {
+      setError(err.message)
+    }
+  }
+
+  const handleRemoveInstructor = async (cohortId: string, targetInstructorId: string) => {
+    try {
+      setError(null)
+      const res = await fetch('/api/cohorts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cohortId, instructorId: targetInstructorId, action: 'remove_instructor' })
+      })
+
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.error || 'Failed to remove instructor')
+      }
+
+      const updatedCohort = await res.json()
+      setCohorts(cohorts.map(c => c.id === cohortId ? updatedCohort : c))
+    } catch (err: any) {
+      setError(err.message)
     }
   }
 
@@ -374,6 +443,9 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
                     <p className="text-sm text-gray-500">
                       {cohort.studentIds.length} student{cohort.studentIds.length !== 1 ? 's' : ''}
                     </p>
+                    <p className="text-sm text-gray-500">
+                      {getInstructorIds(cohort).length} instructor{getInstructorIds(cohort).length !== 1 ? 's' : ''}
+                    </p>
                   </div>
                   <div className="flex gap-2">
                     <button
@@ -431,6 +503,51 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
                       )}
                     </>
                   )}
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-gray-200">
+                  <p className="text-sm font-medium text-gray-700 mb-2">Instructors</p>
+                  <div className="space-y-1 mb-2">
+                    {getInstructorIds(cohort).map((id) => (
+                      <div key={`${cohort.id}-instructor-${id}`} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
+                        <span className="text-gray-700">
+                          {getInstructorName(id)}
+                          {id === instructorId ? ' (You)' : ''}
+                        </span>
+                        <button
+                          onClick={() => handleRemoveInstructor(cohort.id, id)}
+                          className="text-red-600 hover:text-red-800 font-semibold"
+                          disabled={getInstructorIds(cohort).length <= 1}
+                          title={getInstructorIds(cohort).length <= 1 ? 'A cohort must have at least one instructor' : 'Remove instructor'}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <details className="cursor-pointer">
+                    <summary className="text-sm text-blue-600 hover:text-blue-800 font-semibold">
+                      + Add Co-Instructor
+                    </summary>
+                    <div className="mt-2 border border-gray-200 rounded p-2 bg-gray-50">
+                      <div className="max-h-32 overflow-y-auto space-y-1">
+                        {instructors
+                          .filter((inst) => !getInstructorIds(cohort).includes(inst.id))
+                          .map((inst) => (
+                            <button
+                              key={`${cohort.id}-add-inst-${inst.id}`}
+                              onClick={() => handleAddInstructor(cohort.id, inst.id)}
+                              className="w-full text-left px-2 py-1 text-sm bg-white hover:bg-blue-50 rounded border border-gray-200 transition"
+                            >
+                              {inst.username} ({inst.email || '-'})
+                            </button>
+                          ))}
+                        {instructors.filter((inst) => !getInstructorIds(cohort).includes(inst.id)).length === 0 && (
+                          <p className="text-sm text-gray-500 italic">No available instructors to add</p>
+                        )}
+                      </div>
+                    </div>
+                  </details>
                 </div>
 
                 {/* Add Student Button */}

@@ -6,9 +6,25 @@ export interface Cohort {
   id: string
   name: string
   instructorId: string
+  instructorIds?: string[]
   studentIds: string[]
   createdAt: string
   updatedAt: string
+}
+
+export const getCohortInstructorIds = (cohort: Pick<Cohort, 'instructorId' | 'instructorIds'>): string[] => {
+  const normalized = Array.isArray(cohort.instructorIds)
+    ? Array.from(new Set(cohort.instructorIds.map((id) => String(id || '').trim()).filter((id) => id.length > 0)))
+    : []
+  if (normalized.length > 0) return normalized
+  const owner = String(cohort.instructorId || '').trim()
+  return owner ? [owner] : []
+}
+
+export const canManageCohort = (cohort: Pick<Cohort, 'instructorId' | 'instructorIds'>, userId: string): boolean => {
+  const normalizedUserId = String(userId || '').trim()
+  if (!normalizedUserId) return false
+  return getCohortInstructorIds(cohort).includes(normalizedUserId)
 }
 
 const normalizeCohortTags = (value: unknown): string[] => {
@@ -55,10 +71,12 @@ export const createCohort = async (name: string, instructorId: string): Promise<
   const container = await getCohortsContainer()
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
+  const normalizedInstructorId = String(instructorId || '').trim()
   const cohort: Cohort = {
     id,
     name: name.trim(),
-    instructorId,
+    instructorId: normalizedInstructorId,
+    instructorIds: normalizedInstructorId ? [normalizedInstructorId] : [],
     studentIds: [],
     createdAt: now,
     updatedAt: now
@@ -84,7 +102,7 @@ export const getCohortById = async (id: string): Promise<Cohort | null> => {
 export const getCohortsByInstructor = async (instructorId: string): Promise<Cohort[]> => {
   const container = await getCohortsContainer()
   const querySpec = {
-    query: 'SELECT * FROM c WHERE c.instructorId = @instructorId ORDER BY c.createdAt DESC',
+    query: 'SELECT * FROM c WHERE c.instructorId = @instructorId OR ARRAY_CONTAINS(c.instructorIds, @instructorId) ORDER BY c.createdAt DESC',
     parameters: [{ name: '@instructorId', value: instructorId }]
   }
   const { resources } = await container.items.query(querySpec).fetchAll()
@@ -101,14 +119,22 @@ export const getCohortsByStudent = async (studentId: string): Promise<Cohort[]> 
   return resources as Cohort[]
 }
 
-export const updateCohort = async (id: string, updates: Partial<Pick<Cohort, 'name' | 'studentIds'>>): Promise<Cohort | null> => {
+export const updateCohort = async (
+  id: string,
+  updates: Partial<Pick<Cohort, 'name' | 'studentIds' | 'instructorIds'>>
+): Promise<Cohort | null> => {
   const container = await getCohortsContainer()
   try {
     const existing = await getCohortById(id)
     if (!existing) return null
+    const nextInstructorIds = Array.isArray(updates.instructorIds)
+      ? Array.from(new Set(updates.instructorIds.map((item) => String(item || '').trim()).filter((item) => item.length > 0)))
+      : getCohortInstructorIds(existing)
     const updated: Cohort = {
       ...existing,
       ...updates,
+      instructorIds: nextInstructorIds,
+      instructorId: nextInstructorIds[0] || existing.instructorId,
       updatedAt: new Date().toISOString()
     }
     await container.items.upsert(updated)
@@ -169,4 +195,25 @@ export const removeStudentFromCohort = async (cohortId: string, studentId: strin
     await syncUserCohortTag(studentId, cohortId, false)
   }
   return updated
+}
+
+export const addInstructorToCohort = async (cohortId: string, instructorId: string): Promise<Cohort | null> => {
+  const cohort = await getCohortById(cohortId)
+  if (!cohort) return null
+  const normalizedInstructorId = String(instructorId || '').trim()
+  if (!normalizedInstructorId) return cohort
+  const nextInstructorIds = Array.from(new Set([...getCohortInstructorIds(cohort), normalizedInstructorId]))
+  return updateCohort(cohortId, { instructorIds: nextInstructorIds })
+}
+
+export const removeInstructorFromCohort = async (cohortId: string, instructorId: string): Promise<Cohort | null> => {
+  const cohort = await getCohortById(cohortId)
+  if (!cohort) return null
+  const normalizedInstructorId = String(instructorId || '').trim()
+  if (!normalizedInstructorId) return cohort
+  const nextInstructorIds = getCohortInstructorIds(cohort).filter((id) => id !== normalizedInstructorId)
+  if (nextInstructorIds.length === 0) {
+    throw new Error('At least one instructor is required for each cohort')
+  }
+  return updateCohort(cohortId, { instructorIds: nextInstructorIds })
 }

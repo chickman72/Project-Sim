@@ -946,13 +946,24 @@ export default function Page() {
 
           <div className={isClinicalArchetype ? 'lg:col-span-2' : ''}>
             <div className="space-y-4">
-              {!isClinicalArchetype && activeConversationStarters.length > 0 && (
+              {!isClinicalArchetype && (
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-                  <SimulationSidebar
-                    conversationStarters={activeConversationStarters}
-                    onSelectStarter={applyConversationStarter}
-                    heading="Suggested Questions"
+                  <SimulationHeader
+                    heading={archetypeLabel}
+                    title={activeSimulationTitle}
+                    description={activeSimulationDescription}
                   />
+                  {activeConversationStarters.length > 0 ? (
+                    <SimulationSidebar
+                      conversationStarters={activeConversationStarters}
+                      onSelectStarter={applyConversationStarter}
+                      heading="Suggested Questions"
+                    />
+                  ) : (
+                    <p className="pt-3 text-sm text-gray-600">
+                      Start by asking what to focus on first, key concepts to review, or where you need help next.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -971,7 +982,7 @@ export default function Page() {
                 />
               )}
               <SimulationChatInterface
-                title={archetypeLabel}
+                title={isClinicalArchetype ? archetypeLabel : 'Chat'}
                 messages={messages}
                 input={input}
                 loading={loading}

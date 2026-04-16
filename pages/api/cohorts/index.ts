@@ -5,14 +5,19 @@ import {
   getCohortsByInstructor, 
   getCohortById,
   addStudentToCohort,
-  removeStudentFromCohort
+  removeStudentFromCohort,
+  addInstructorToCohort,
+  removeInstructorFromCohort,
+  canManageCohort,
 } from '../../../lib/cohort'
 import { logAdminAction } from '../../../lib/audit-log'
+import { getUserById } from '../../../lib/user'
 
 interface CohortResponse {
   id: string
   name: string
   instructorId: string
+  instructorIds?: string[]
   studentIds: string[]
   createdAt: string
   updatedAt: string
@@ -86,19 +91,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (req.method === 'PUT') {
-      // Add or remove students from a cohort
-      const { cohortId, studentId, action } = req.body
+      // Add or remove students/instructors from a cohort
+      const { cohortId, studentId, instructorId, action } = req.body
 
       if (!cohortId || typeof cohortId !== 'string') {
         return res.status(400).json({ error: 'cohortId is required and must be a string' })
       }
-
-      if (!studentId || typeof studentId !== 'string') {
-        return res.status(400).json({ error: 'studentId is required and must be a string' })
-      }
-
-      if (!action || (action !== 'add' && action !== 'remove')) {
-        return res.status(400).json({ error: 'action must be "add" or "remove"' })
+      const normalizedAction = String(action || '').trim()
+      const resolvedAction =
+        normalizedAction === 'add'
+          ? 'add_student'
+          : normalizedAction === 'remove'
+            ? 'remove_student'
+            : normalizedAction
+      const allowedActions = new Set(['add_student', 'remove_student', 'add_instructor', 'remove_instructor'])
+      if (!allowedActions.has(resolvedAction)) {
+        return res.status(400).json({ error: 'action must be one of: add_student, remove_student, add_instructor, remove_instructor' })
       }
 
       // Verify the cohort belongs to the instructor (or that the requester is an admin)
@@ -107,26 +115,53 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(404).json({ error: 'Cohort not found' })
       }
 
-      if (session.role !== 'Administrator' && cohort.instructorId !== session.userId) {
+      if (session.role !== 'Administrator' && !canManageCohort(cohort, session.userId)) {
         return res.status(403).json({ error: 'You can only modify your own cohorts' })
       }
 
       try {
-        if (action === 'add') {
+        if (resolvedAction === 'add_student') {
+          if (!studentId || typeof studentId !== 'string') {
+            return res.status(400).json({ error: 'studentId is required and must be a string for add_student' })
+          }
           await addStudentToCohort(cohortId, studentId)
-        } else {
+        } else if (resolvedAction === 'remove_student') {
+          if (!studentId || typeof studentId !== 'string') {
+            return res.status(400).json({ error: 'studentId is required and must be a string for remove_student' })
+          }
           await removeStudentFromCohort(cohortId, studentId)
+        } else if (resolvedAction === 'add_instructor') {
+          if (!instructorId || typeof instructorId !== 'string') {
+            return res.status(400).json({ error: 'instructorId is required and must be a string for add_instructor' })
+          }
+          const instructor = await getUserById(instructorId)
+          const role = String(instructor?.role || '')
+          const isInstructorRole = role === 'Instructor' || role === 'instructor' || role === 'Administrator' || role === 'admin'
+          if (!instructor || !isInstructorRole) {
+            return res.status(400).json({ error: 'instructorId must belong to an Instructor or Administrator account' })
+          }
+          await addInstructorToCohort(cohortId, instructorId)
+        } else {
+          if (!instructorId || typeof instructorId !== 'string') {
+            return res.status(400).json({ error: 'instructorId is required and must be a string for remove_instructor' })
+          }
+          await removeInstructorFromCohort(cohortId, instructorId)
         }
 
         const updatedCohort = await getCohortById(cohortId)
 
         // Log the action
         if (session.role === 'Administrator') {
-          const logAction = action === 'add' ? 'ADD_STUDENT_TO_COHORT' : 'REMOVE_STUDENT_FROM_COHORT'
+          const logAction = resolvedAction === 'add_student'
+            ? 'ADD_STUDENT_TO_COHORT'
+            : resolvedAction === 'remove_student'
+              ? 'REMOVE_STUDENT_FROM_COHORT'
+              : 'UPDATE_COHORT'
           await logAdminAction(session.userId, logAction, cohortId, {
             cohortName: updatedCohort?.name,
             studentId,
-            action
+            instructorId,
+            action: resolvedAction
           })
         }
 
