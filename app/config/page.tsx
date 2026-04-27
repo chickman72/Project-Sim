@@ -1052,7 +1052,6 @@ export default function Page() {
                     className="w-full h-64 p-4 border rounded-md resize-y focus:ring-2 focus:ring-blue-500"
                     placeholder="e.g., You are a customer service representative for a clothing store..."
                   />
-                  {draftSim.archetype === 'clinical' && (
                   <div className="mt-6 border border-gray-200 rounded-md p-4 bg-gray-50">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-gray-900">Conversation Starters</h3>
@@ -1104,7 +1103,6 @@ export default function Page() {
                       </div>
                     )}
                   </div>
-                  )}
                   {draftSim.archetype === 'clinical' && (
                   <div className="mt-6 border border-gray-200 rounded-md p-4 bg-gray-50">
                     <div className="flex items-center justify-between mb-3">
