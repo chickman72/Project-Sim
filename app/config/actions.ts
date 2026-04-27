@@ -21,6 +21,12 @@ type RubricCriterion = {
 type KnowledgeBaseMode = 'standard' | 'strict_rag'
 type AgentArchetype = 'clinical' | 'tutor' | 'assistant'
 type SimulationVisibility = 'global' | 'cohort' | 'private'
+type UploadableFile = {
+  name: string
+  size: number
+  type?: string
+  arrayBuffer: () => Promise<ArrayBuffer>
+}
 
 type SaveSimulationInput = {
   code: string
@@ -273,20 +279,32 @@ const assertInstructorSimulationAccess = async (simulationId: string) => {
   return { session, container, setupId, resource }
 }
 
+const isUploadableFile = (item: unknown): item is UploadableFile => {
+  if (!item || typeof item !== 'object') return false
+  const candidate = item as Partial<UploadableFile>
+  return (
+    typeof candidate.name === 'string' &&
+    typeof candidate.size === 'number' &&
+    candidate.size > 0 &&
+    typeof candidate.arrayBuffer === 'function'
+  )
+}
+
 export async function uploadSimulationDocument(
   simulationId: string,
   formData: FormData,
   knowledgeBaseMode: KnowledgeBaseMode = 'strict_rag',
 ) {
   const { container, setupId, resource } = await assertInstructorSimulationAccess(simulationId)
-  const multiFiles = formData
-    .getAll('files')
-    .filter((item): item is File => item instanceof File && item.size > 0)
+  const multiFiles: UploadableFile[] = []
+  for (const item of formData.getAll('files')) {
+    if (isUploadableFile(item)) multiFiles.push(item)
+  }
   const singleFile = formData.get('file')
-  const files =
+  const files: UploadableFile[] =
     multiFiles.length > 0
       ? multiFiles
-      : singleFile instanceof File && singleFile.size > 0
+      : isUploadableFile(singleFile)
         ? [singleFile]
         : []
 

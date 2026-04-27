@@ -7,6 +7,13 @@ export type UploadedSimulationDocument = {
   blobUrl: string
 }
 
+export type UploadableSimulationDocumentFile = {
+  name: string
+  size: number
+  type?: string
+  arrayBuffer: () => Promise<ArrayBuffer>
+}
+
 const getStorageConfig = () => {
   const connectionString = process.env.AZURE_STORAGE_CONNECTION_STRING
   const containerName = process.env.AZURE_STORAGE_CONTAINER
@@ -42,7 +49,7 @@ const getContainerClient = () => {
 
 export async function uploadSimulationDocumentToBlob(
   simulationId: string,
-  file: File,
+  file: UploadableSimulationDocumentFile,
 ): Promise<UploadedSimulationDocument> {
   const trimmedSimulationId = String(simulationId || '').trim()
   if (!trimmedSimulationId) throw new Error('simulationId is required')
