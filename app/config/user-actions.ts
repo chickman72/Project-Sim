@@ -5,6 +5,7 @@ import { cookies } from 'next/headers'
 import { getSessionCookieName, verifySessionToken } from '../../lib/auth'
 import { getCohortsContainer } from '../../lib/cohort'
 import { getUsersContainer } from '../../lib/cosmos'
+import { sendWelcomeOnboardingEmail } from '../../lib/email-service'
 import { createUser, getUserByEmail, listUsers, updateUser, type AccessRole, type User } from '../../lib/user'
 
 export type UserDashboardItem = {
@@ -145,9 +146,33 @@ export async function generateUserInvite(email: string, role: string, cohorts: s
     })
   }
 
+  const inviteUrl = buildInviteUrl(inviteToken)
+  let emailSent = false
+  try {
+    await sendWelcomeOnboardingEmail({
+      appId: 'project-sim',
+      to: normalizedEmail,
+      subject: 'Welcome to Project Sim',
+      templateData: {
+        firstName: normalizedEmail.split('@')[0] || 'there',
+        productName: 'Project Sim',
+        actionUrl: inviteUrl,
+        previewText: 'Accept your Project Sim invitation.',
+      },
+    })
+    emailSent = true
+  } catch (error) {
+    console.error('Failed sending Project Sim invite email', {
+      email: normalizedEmail,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    })
+  }
+
   return {
-    inviteUrl: buildInviteUrl(inviteToken),
+    inviteUrl,
     expiresAt: inviteTokenExpiry,
+    emailSent,
   }
 }
 

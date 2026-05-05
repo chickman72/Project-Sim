@@ -26,6 +26,10 @@ LLMLITE_URL=https://proxy-ai-anes-uabmc-awefchfueccrddhf.eastus2-01.azurewebsite
 # Azure Speech TTS (required for AI voice playback):
 # AZURE_SPEECH_KEY=your-azure-speech-key
 # AZURE_SPEECH_REGION=eastus
+
+# Email microservice (required for invite and password reset emails):
+# EMAIL_MICROSERVICE_API_KEY=your-secret-api-key
+# EMAIL_MICROSERVICE_BASE_URL=https://blue-island-0357bf210.7.azurestaticapps.net
 ```
 
 Features:

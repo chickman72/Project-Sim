@@ -1,5 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import { sendWelcomeOnboardingEmail } from 'lib/email-service'
 import { getUserByUsername, getUserByEmail, updateUser, generateResetToken } from 'lib/user'
+
+const buildResetUrl = (req: NextApiRequest, token: string) => {
+  const configuredBase =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.APP_URL ||
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
+  const host = req.headers.host ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}` : ''
+  const base = (configuredBase || host || 'http://localhost:3000').replace(/\/+$/, '')
+  return `${base}/reset-password-token?token=${encodeURIComponent(token)}`
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -36,8 +47,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       resetTokenExpiry
     })
 
-    // In production, send email with reset link
-    // For now, return the token in response (for development/testing)
+    const resetLink = buildResetUrl(req, resetToken)
+
+    try {
+      await sendWelcomeOnboardingEmail({
+        appId: 'project-sim',
+        to: user.email || user.username,
+        subject: 'Reset your Project Sim password',
+        templateData: {
+          firstName: (user.email || user.username).split('@')[0] || 'there',
+          productName: 'Project Sim',
+          actionUrl: resetLink,
+          previewText: 'Use this link to reset your Project Sim password.',
+        },
+      })
+    } catch (emailError) {
+      console.error('Failed sending Project Sim password reset email', {
+        userId: user.id,
+        message: emailError instanceof Error ? emailError.message : String(emailError),
+        stack: emailError instanceof Error ? emailError.stack : undefined,
+      })
+      throw emailError
+    }
+
     const isDevelopment = process.env.NODE_ENV !== 'production'
     const response: any = {
       success: true,
@@ -45,7 +77,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     if (isDevelopment) {
-      response.resetLink = `/reset-password-token?token=${resetToken}`
+      response.resetLink = resetLink
     }
 
     return res.status(200).json(response)
