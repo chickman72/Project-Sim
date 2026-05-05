@@ -2,13 +2,32 @@ import type { NextApiRequest, NextApiResponse } from 'next'
 import { sendWelcomeOnboardingEmail } from 'lib/email-service'
 import { getUserByUsername, getUserByEmail, updateUser, generateResetToken } from 'lib/user'
 
+const getHeaderValue = (value: string | string[] | undefined) => {
+  if (Array.isArray(value)) return value[0] || ''
+  return value || ''
+}
+
+const getOriginFromUrl = (value: string) => {
+  try {
+    return new URL(value).origin
+  } catch {
+    return ''
+  }
+}
+
 const buildResetUrl = (req: NextApiRequest, token: string) => {
   const configuredBase =
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.APP_URL ||
     (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
-  const host = req.headers.host ? `${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}` : ''
-  const base = (configuredBase || host || 'http://localhost:3000').replace(/\/+$/, '')
+  const origin = getHeaderValue(req.headers.origin)
+  const refererOrigin = getOriginFromUrl(getHeaderValue(req.headers.referer))
+  const forwardedHost = getHeaderValue(req.headers['x-forwarded-host'])
+  const forwardedProto = getHeaderValue(req.headers['x-forwarded-proto']) || 'https'
+  const forwardedBase = forwardedHost ? `${forwardedProto}://${forwardedHost}` : ''
+  const host = getHeaderValue(req.headers.host)
+  const hostBase = host ? `${forwardedProto}://${host}` : ''
+  const base = (configuredBase || origin || refererOrigin || forwardedBase || hostBase || 'http://localhost:3000').replace(/\/+$/, '')
   return `${base}/reset-password-token?token=${encodeURIComponent(token)}`
 }
 
