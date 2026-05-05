@@ -310,42 +310,54 @@ export async function uploadSimulationDocument(
   formData: FormData,
   knowledgeBaseMode: KnowledgeBaseMode = 'strict_rag',
 ): Promise<UploadSimulationDocumentResult> {
-  const { container, setupId, resource } = await assertInstructorSimulationAccess(simulationId)
-  const multiFiles: UploadableFile[] = []
-  for (const item of formData.getAll('files')) {
-    if (isUploadableFile(item)) multiFiles.push(item)
+  let uploaded: UploadedSimulationDocument[] = []
+
+  try {
+    const { container, setupId, resource } = await assertInstructorSimulationAccess(simulationId)
+    const multiFiles: UploadableFile[] = []
+    for (const item of formData.getAll('files')) {
+      if (isUploadableFile(item)) multiFiles.push(item)
+    }
+    const singleFile = formData.get('file')
+    const files: UploadableFile[] =
+      multiFiles.length > 0
+        ? multiFiles
+        : isUploadableFile(singleFile)
+          ? [singleFile]
+          : []
+
+    if (files.length === 0) {
+      throw new Error('At least one file is required')
+    }
+
+    uploaded = (await Promise.all(files.map((file) => uploadSimulationDocumentToBlob(setupId, file))))
+      .map(toPlainUploadedDocument)
+      .filter((item): item is UploadedSimulationDocument => Boolean(item))
+    const resourceUploadedDocuments: unknown[] = Array.isArray(resource.uploadedDocuments)
+      ? resource.uploadedDocuments
+      : []
+    const currentDocuments = resourceUploadedDocuments.length > 0
+      ? resourceUploadedDocuments
+          .map(toPlainUploadedDocument)
+          .filter((item): item is UploadedSimulationDocument => Boolean(item))
+      : []
+
+    const updatedDocuments = [...currentDocuments, ...uploaded]
+    await container.items.upsert({
+      ...resource,
+      knowledgeBaseMode: knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
+      uploadedDocuments: updatedDocuments,
+      updatedAt: new Date().toISOString(),
+    })
+  } catch (error) {
+    console.error('[uploadSimulationDocument] Server Action failed', {
+      simulationId,
+      knowledgeBaseMode,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    })
+    throw error
   }
-  const singleFile = formData.get('file')
-  const files: UploadableFile[] =
-    multiFiles.length > 0
-      ? multiFiles
-      : isUploadableFile(singleFile)
-        ? [singleFile]
-        : []
-
-  if (files.length === 0) {
-    throw new Error('At least one file is required')
-  }
-
-  const uploaded = (await Promise.all(files.map((file) => uploadSimulationDocumentToBlob(setupId, file))))
-    .map(toPlainUploadedDocument)
-    .filter((item): item is UploadedSimulationDocument => Boolean(item))
-  const resourceUploadedDocuments: unknown[] = Array.isArray(resource.uploadedDocuments)
-    ? resource.uploadedDocuments
-    : []
-  const currentDocuments = resourceUploadedDocuments.length > 0
-    ? resourceUploadedDocuments
-        .map(toPlainUploadedDocument)
-        .filter((item): item is UploadedSimulationDocument => Boolean(item))
-    : []
-
-  const updatedDocuments = [...currentDocuments, ...uploaded]
-  await container.items.upsert({
-    ...resource,
-    knowledgeBaseMode: knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
-    uploadedDocuments: updatedDocuments,
-    updatedAt: new Date().toISOString(),
-  })
 
   revalidatePath('/config')
   return {

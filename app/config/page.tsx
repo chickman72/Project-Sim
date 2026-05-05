@@ -380,6 +380,11 @@ export default function Page() {
         ),
       )
     } catch (err) {
+      console.error('[config] Document upload failed', {
+        error: err,
+        digest: err && typeof err === 'object' && 'digest' in err ? String(err.digest) : undefined,
+        message: err instanceof Error ? err.message : String(err),
+      })
       setError(err instanceof Error ? err.message : 'Error uploading document')
       setDocumentUploadError(err instanceof Error ? err.message : 'Error uploading document')
     } finally {
