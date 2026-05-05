@@ -354,7 +354,8 @@ export default function Page() {
       for (const file of filesToUpload) {
         formData.append('files', file)
       }
-      const uploaded = await uploadSimulationDocument(selectedSimId, formData, draftSim.knowledgeBaseMode)
+      const uploadResult = await uploadSimulationDocument(selectedSimId, formData, draftSim.knowledgeBaseMode)
+      const uploaded = uploadResult.success ? uploadResult.uploadedDocuments : []
       const removedBlobUrls = new Set(uniqueDocumentsToReplace.map((doc) => doc.blobUrl))
 
       setDraftSim((prev) => ({

@@ -28,6 +28,11 @@ type UploadableFile = {
   arrayBuffer: () => Promise<ArrayBuffer>
 }
 
+type UploadSimulationDocumentResult = {
+  success: true
+  uploadedDocuments: UploadedSimulationDocument[]
+}
+
 type SaveSimulationInput = {
   code: string
   title: string
@@ -290,11 +295,21 @@ const isUploadableFile = (item: unknown): item is UploadableFile => {
   )
 }
 
+const toPlainUploadedDocument = (item: unknown): UploadedSimulationDocument | null => {
+  if (!item || typeof item !== 'object') return null
+  const candidate = item as Partial<UploadedSimulationDocument>
+  const fileName = String(candidate.fileName || '').trim()
+  const blobUrl = String(candidate.blobUrl || '').trim()
+
+  if (!fileName || !blobUrl) return null
+  return { fileName, blobUrl }
+}
+
 export async function uploadSimulationDocument(
   simulationId: string,
   formData: FormData,
   knowledgeBaseMode: KnowledgeBaseMode = 'strict_rag',
-) {
+): Promise<UploadSimulationDocumentResult> {
   const { container, setupId, resource } = await assertInstructorSimulationAccess(simulationId)
   const multiFiles: UploadableFile[] = []
   for (const item of formData.getAll('files')) {
@@ -312,14 +327,16 @@ export async function uploadSimulationDocument(
     throw new Error('At least one file is required')
   }
 
-  const uploaded = await Promise.all(files.map((file) => uploadSimulationDocumentToBlob(setupId, file)))
-  const currentDocuments = Array.isArray(resource.uploadedDocuments)
+  const uploaded = (await Promise.all(files.map((file) => uploadSimulationDocumentToBlob(setupId, file))))
+    .map(toPlainUploadedDocument)
+    .filter((item): item is UploadedSimulationDocument => Boolean(item))
+  const resourceUploadedDocuments: unknown[] = Array.isArray(resource.uploadedDocuments)
     ? resource.uploadedDocuments
-        .map((item: any) => ({
-          fileName: String(item?.fileName || '').trim(),
-          blobUrl: String(item?.blobUrl || '').trim(),
-        }))
-        .filter((item: UploadedSimulationDocument) => item.fileName && item.blobUrl)
+    : []
+  const currentDocuments = resourceUploadedDocuments.length > 0
+    ? resourceUploadedDocuments
+        .map(toPlainUploadedDocument)
+        .filter((item): item is UploadedSimulationDocument => Boolean(item))
     : []
 
   const updatedDocuments = [...currentDocuments, ...uploaded]
@@ -331,7 +348,10 @@ export async function uploadSimulationDocument(
   })
 
   revalidatePath('/config')
-  return uploaded
+  return {
+    success: true,
+    uploadedDocuments: uploaded,
+  }
 }
 
 export async function deleteSimulationDocument(
