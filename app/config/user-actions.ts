@@ -1,7 +1,7 @@
 'use server'
 
 import crypto from 'node:crypto'
-import { cookies } from 'next/headers'
+import { cookies, headers } from 'next/headers'
 import { getSessionCookieName, verifySessionToken } from '../../lib/auth'
 import { getCohortsContainer } from '../../lib/cohort'
 import { getUsersContainer } from '../../lib/cosmos'
@@ -95,11 +95,19 @@ export async function updateUserCohorts(userId: string, newCohorts: string[]) {
   return mapped
 }
 
-const buildInviteUrl = (token: string) => {
-  const base =
+const getHeaderValue = (value: string | null) => value?.split(',')[0]?.trim() || ''
+
+const buildInviteUrl = async (token: string) => {
+  const requestHeaders = await headers()
+  const configuredBase =
     process.env.NEXT_PUBLIC_APP_URL ||
     process.env.APP_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '')
+  const forwardedHost = getHeaderValue(requestHeaders.get('x-forwarded-host'))
+  const forwardedProto = getHeaderValue(requestHeaders.get('x-forwarded-proto')) || 'https'
+  const host = forwardedHost || getHeaderValue(requestHeaders.get('host'))
+  const requestBase = host ? `${forwardedProto}://${host}` : ''
+  const base = (configuredBase || requestBase || 'http://localhost:3000')
   return `${base.replace(/\/+$/, '')}/register/invite/${encodeURIComponent(token)}`
 }
 
@@ -146,7 +154,7 @@ export async function generateUserInvite(email: string, role: string, cohorts: s
     })
   }
 
-  const inviteUrl = buildInviteUrl(inviteToken)
+  const inviteUrl = await buildInviteUrl(inviteToken)
   let emailSent = false
   try {
     await sendWelcomeOnboardingEmail({
