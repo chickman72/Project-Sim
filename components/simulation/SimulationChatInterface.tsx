@@ -1,6 +1,11 @@
 import React from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import BrandLoader from '../BrandLoader'
 import type { ChatMessage } from './types'
+
+const normalizeAssistantMarkdown = (content: string) =>
+  content.replace(/\\([\\`*_[\]{}()#+.!>-])/g, '$1')
 
 type Props = {
   title?: string
@@ -108,7 +113,13 @@ export default function SimulationChatInterface({
         {messages.map((m, i) => (
           <div key={i} className={`mb-3 ${m.role === 'assistant' ? 'text-left' : 'text-right'}`}>
             <div className={`inline-block max-w-[90%] px-3 py-2 rounded-xl ${m.role === 'assistant' ? 'bg-white border border-gray-200 text-gray-900' : 'bg-blue-600 text-white'}`}>
-              <div className="text-sm whitespace-pre-wrap">{m.content}</div>
+              {m.role === 'assistant' ? (
+                <div className="text-sm break-words [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_strong]:font-semibold [&_a]:text-blue-700 [&_a]:underline">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{normalizeAssistantMarkdown(m.content)}</ReactMarkdown>
+                </div>
+              ) : (
+                <div className="text-sm whitespace-pre-wrap break-words">{m.content}</div>
+              )}
             </div>
           </div>
         ))}
