@@ -42,6 +42,8 @@ export default function Page() {
           router.replace('/admin')
           return
         }
+      } catch {
+        setError('Unable to check your existing session. Please try again.')
       } finally {
         setCheckingSession(false)
       }

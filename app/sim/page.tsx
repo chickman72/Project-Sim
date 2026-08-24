@@ -213,6 +213,8 @@ export default function Page() {
           setUserEmail(data.email || null)
           setUserRole(data.role || null)
         }
+      } catch {
+        setError('Unable to verify your session. Please refresh and try again.')
       } finally {
         setAuthChecked(true)
       }
