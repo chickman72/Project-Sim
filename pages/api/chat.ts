@@ -4,27 +4,9 @@ import { toAuditJson, writeAuditRecord, type CompletionStatus } from '../../lib/
 import { getPrimaryCohortIdForUser, logTelemetryEvent } from '../../lib/telemetry'
 import { getSetupsContainer } from '../../lib/cosmos'
 import { retrieveSimulationContext } from '../../lib/azure-rag'
-
-const DEFAULT_LLMLITE_URL =
-  'https://proxy-ai-anes-uabmc-awefchfueccrddhf.eastus2-01.azurewebsites.net/'
+import { getLlmEndpoint, getLlmHeaders, getLlmModel, getLlmTokenLimit } from '../../lib/llm-config'
 
 type Msg = { role: string; content: string }
-
-const normalizeUrl = (url: string) => url.trim().replace(/\/+$/, '')
-
-const getLLMLiteEndpoint = () => {
-  const raw = process.env.LLMLITE_URL || DEFAULT_LLMLITE_URL
-  const base = normalizeUrl(raw)
-
-  if (/(^|\/)v1\/chat\/completions$/.test(base) || /(^|\/)chat\/completions$/.test(base)) {
-    return base
-  }
-
-  if (/(^|\/)v1$/.test(base)) return `${base}/chat/completions`
-  return `${base}/chat/completions`
-}
-
-const getLLMLiteApiKey = () => process.env.LLMLITE_API_KEY || process.env.LLMLITE_KEY
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end()
@@ -132,16 +114,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } else {
       console.log('[chat] systemPrompt: <empty>')
     }
-    const llmUrl = getLLMLiteEndpoint()
+    const llmUrl = getLlmEndpoint()
     const startMs = Date.now()
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 60000)
-    const chosenModel =
-      model || process.env.LLMLITE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini'
-
-    const apiKey = getLLMLiteApiKey()
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-    if (apiKey) headers['x-litellm-api-key'] = apiKey
+    const chosenModel = getLlmModel(model)
+    const headers = getLlmHeaders()
 
     const resp = await fetch(llmUrl, {
       method: 'POST',
@@ -149,7 +127,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       body: JSON.stringify({
         model: chosenModel,
         messages,
-        max_tokens: 1000,
+        ...getLlmTokenLimit(1000),
       }),
       signal: controller.signal,
     })
@@ -282,8 +260,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         userAgent: String(req.headers['user-agent'] || ''),
         path: req.url || null,
         method: req.method || null,
-        endpoint: getLLMLiteEndpoint(),
-        model: model || process.env.LLMLITE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        endpoint: getLlmEndpoint(),
+        model: getLlmModel(model),
         userMessage,
         messagesJson: toAuditJson(messages),
         requestJson: toAuditJson({

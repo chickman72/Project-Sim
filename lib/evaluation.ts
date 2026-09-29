@@ -1,5 +1,6 @@
 import { getLogsContainer } from './cosmos'
 import type { EvaluationCriterion, EvaluationStatus } from './audit-log'
+import { getLlmEndpoint, getLlmHeaders, getLlmModel, getLlmTokenLimit } from './llm-config'
 
 type TranscriptTurn = {
   studentInput?: string
@@ -17,21 +18,6 @@ type SessionStateDoc = {
   evaluationStatus?: EvaluationStatus
   evaluationData?: EvaluationCriterion[]
 }
-
-const DEFAULT_LLMLITE_URL =
-  'https://proxy-ai-anes-uabmc-awefchfueccrddhf.eastus2-01.azurewebsites.net/'
-
-const normalizeUrl = (url: string) => url.trim().replace(/\/+$/, '')
-
-const getLLMLiteEndpoint = () => {
-  const raw = process.env.LLMLITE_URL || DEFAULT_LLMLITE_URL
-  const base = normalizeUrl(raw)
-  if (/(^|\/)v1\/chat\/completions$/.test(base) || /(^|\/)chat\/completions$/.test(base)) return base
-  if (/(^|\/)v1$/.test(base)) return `${base}/chat/completions`
-  return `${base}/chat/completions`
-}
-
-const getLLMLiteApiKey = () => process.env.LLMLITE_API_KEY || process.env.LLMLITE_KEY
 
 export const getSessionTranscript = async (sessionId: string): Promise<TranscriptTurn[]> => {
   const container = await getLogsContainer()
@@ -151,21 +137,19 @@ export const runAIEvaluationInternal = async (
     transcriptText,
   ].join('\n')
 
-  const llmUrl = getLLMLiteEndpoint()
-  const apiKey = getLLMLiteApiKey()
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (apiKey) headers['x-litellm-api-key'] = apiKey
+  const llmUrl = getLlmEndpoint()
+  const headers = getLlmHeaders()
 
   const resp = await fetch(llmUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify({
-      model: process.env.LLMLITE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      model: getLlmModel(),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: 1200,
+      ...getLlmTokenLimit(1200),
     }),
   })
 
@@ -221,21 +205,19 @@ export const summarizeSessionTranscriptInternal = async (sessionId: string): Pro
     transcriptText,
   ].join('\n')
 
-  const llmUrl = getLLMLiteEndpoint()
-  const apiKey = getLLMLiteApiKey()
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (apiKey) headers['x-litellm-api-key'] = apiKey
+  const llmUrl = getLlmEndpoint()
+  const headers = getLlmHeaders()
 
   const resp = await fetch(llmUrl, {
     method: 'POST',
     headers,
     body: JSON.stringify({
-      model: process.env.LLMLITE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+      model: getLlmModel(),
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      max_tokens: 900,
+      ...getLlmTokenLimit(900),
     }),
   })
 

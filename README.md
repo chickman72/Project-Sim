@@ -13,11 +13,18 @@ Environment:
 - Create a `.env.local` with:
 
 ```
-LLMLITE_URL=https://proxy-ai-anes-uabmc-awefchfueccrddhf.eastus2-01.azurewebsites.net/
-# Usually required:
-# LLMLITE_API_KEY=sk-...
-# Optional if your proxy supports model selection:
-# LLMLITE_MODEL=gpt-4o-mini
+# LiteLLM proxy:
+LITELLM_URL=https://your-litellm-proxy.example.com/
+LITELLM_API_KEY=sk-...
+LITELLM_MODEL=gpt-4o-mini
+
+# Or Azure OpenAI / Microsoft Foundry (the project endpoint is accepted and
+# normalized to the resource-level /openai/v1/chat/completions route):
+# LITELLM_URL=https://your-resource.services.ai.azure.com/api/projects/your-project/
+# LITELLM_API_KEY=your-resource-key
+# LITELLM_MODEL=your-model-deployment-name
+
+# The legacy LLMLITE_URL, LLMLITE_API_KEY, and LLMLITE_MODEL names are also supported.
 
 # App login (required):
 # AUTH_PASSWORD=choose-a-password

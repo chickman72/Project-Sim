@@ -1,30 +1,12 @@
 'use server'
 
 import type { ChatMessage } from '../../components/simulation/types'
-
-const DEFAULT_LLMLITE_URL =
-  'https://proxy-ai-anes-uabmc-awefchfueccrddhf.eastus2-01.azurewebsites.net/'
+import { getLlmEndpoint, getLlmHeaders, getLlmModel, getLlmTokenLimit } from '../../lib/llm-config'
 
 type LLMMessage = {
   role: 'user' | 'assistant' | 'system'
   content: string
 }
-
-const normalizeUrl = (url: string) => url.trim().replace(/\/+$/, '')
-
-const getLLMLiteEndpoint = () => {
-  const raw = process.env.LLMLITE_URL || DEFAULT_LLMLITE_URL
-  const base = normalizeUrl(raw)
-
-  if (/(^|\/)v1\/chat\/completions$/.test(base) || /(^|\/)chat\/completions$/.test(base)) {
-    return base
-  }
-
-  if (/(^|\/)v1$/.test(base)) return `${base}/chat/completions`
-  return `${base}/chat/completions`
-}
-
-const getLLMLiteApiKey = () => process.env.LLMLITE_API_KEY || process.env.LLMLITE_KEY
 
 export async function sendPreviewMessage(systemPrompt: string, messageHistory: ChatMessage[]) {
   const prompt = typeof systemPrompt === 'string' ? systemPrompt.trim() : ''
@@ -44,12 +26,9 @@ export async function sendPreviewMessage(systemPrompt: string, messageHistory: C
     messages.push({ role: message.role, content: message.content })
   }
 
-  const llmUrl = getLLMLiteEndpoint()
-  const chosenModel = process.env.LLMLITE_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini'
-  const apiKey = getLLMLiteApiKey()
-
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (apiKey) headers['x-litellm-api-key'] = apiKey
+  const llmUrl = getLlmEndpoint()
+  const chosenModel = getLlmModel()
+  const headers = getLlmHeaders()
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 45000)
@@ -61,7 +40,7 @@ export async function sendPreviewMessage(systemPrompt: string, messageHistory: C
       body: JSON.stringify({
         model: chosenModel,
         messages,
-        max_tokens: 1000,
+        ...getLlmTokenLimit(1000),
       }),
       signal: controller.signal,
     })
