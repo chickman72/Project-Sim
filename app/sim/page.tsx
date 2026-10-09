@@ -9,7 +9,8 @@ import SimulationHeader from '../../components/simulation/SimulationHeader'
 import SimulationSidebar from '../../components/simulation/SimulationSidebar'
 import SimulationChatInterface from '../../components/simulation/SimulationChatInterface'
 import AvatarPlayer, { type AvatarPlayerHandle } from '../../components/simulation/AvatarPlayer'
-import type { ChatMessage } from '../../components/simulation/types'
+import type { ChatMessage, InteractionModes } from '../../components/simulation/types'
+import { usePatientVoice } from '../../lib/usePatientVoice'
 
 type Assignment = {
   id: string
@@ -82,6 +83,7 @@ const formatDuration = (seconds?: number) => {
 }
 
 const DEFAULT_PATIENT_VOICE = 'en-US-JennyNeural'
+const DEFAULT_INTERACTION_MODES: InteractionModes = { text: true, speak: true, video: true }
 
 const MALE_VOICE_HINTS = ['guy', 'davis', 'tony', 'jason', 'andrew', 'brandon', 'christopher', 'eric', 'roger', 'ryan']
 const FEMALE_VOICE_HINTS = ['jenny', 'aria', 'emma', 'sara', 'ashley', 'ava', 'michelle', 'monica', 'nancy']
@@ -133,6 +135,7 @@ export default function Page() {
   const [activeSimulationArchetype, setActiveSimulationArchetype] = useState<SimulationArchetype>('clinical')
   const [activePatientVoice, setActivePatientVoice] = useState(DEFAULT_PATIENT_VOICE)
   const [activeSimulationIsPracticeMode, setActiveSimulationIsPracticeMode] = useState(false)
+  const [activeInteractionModes, setActiveInteractionModes] = useState<InteractionModes>(DEFAULT_INTERACTION_MODES)
   const [activeConversationStarters, setActiveConversationStarters] = useState<string[]>([])
   const [simulationStartedAt, setSimulationStartedAt] = useState<number | null>(null)
 
@@ -162,12 +165,68 @@ export default function Page() {
   const [feedbackLoading, setFeedbackLoading] = useState(false)
   const [feedbackError, setFeedbackError] = useState<string | null>(null)
 
-  const speechRecognitionRef = useRef<any>(null)
-  const transcriptBufferRef = useRef('')
-  const ignoreTranscriptRef = useRef(false)
   const avatarPlayerRef = useRef<AvatarPlayerHandle | null>(null)
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null)
   const ttsAudioUrlRef = useRef<string | null>(null)
+  const pendingLiveTurnRef = useRef<{ studentInput: string; aiOutput: string }>({
+    studentInput: '',
+    aiOutput: '',
+  })
+
+  const handleLiveTranscript = React.useCallback(
+    (role: 'user' | 'assistant', text: string) => {
+      const content = text.trim()
+      if (!content) return
+
+      addMessage({ role, content })
+      if (role === 'user') {
+        pendingLiveTurnRef.current.studentInput = content
+      } else {
+        pendingLiveTurnRef.current.aiOutput = content
+      }
+
+      const turn = pendingLiveTurnRef.current
+      if (turn.studentInput && turn.aiOutput) {
+        const completedTurn = { ...turn }
+        pendingLiveTurnRef.current = { studentInput: '', aiOutput: '' }
+        void fetch('/api/voice/live/turn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...completedTurn,
+            scenarioId: activeSimulationCode || undefined,
+          }),
+        }).catch(() => null)
+      }
+    },
+    [activeSimulationCode, addMessage],
+  )
+
+  const {
+    connect: connectLiveVoice,
+    disconnect: disconnectLiveVoice,
+    isSpeaking: isLiveUserSpeaking,
+    isPatientSpeaking: isLivePatientSpeaking,
+    isConnected: isLiveVoiceConnected,
+    isConnecting: isLiveVoiceConnecting,
+  } = usePatientVoice({
+    systemPrompt,
+    patientVoice: activePatientVoice,
+    onTranscript: handleLiveTranscript,
+    onError: setVoiceError,
+  })
+
+  React.useEffect(() => {
+    setVoiceMode(isLiveVoiceConnected || isLiveVoiceConnecting)
+  }, [isLiveVoiceConnected, isLiveVoiceConnecting])
+
+  React.useEffect(() => {
+    setIsListening(isLiveUserSpeaking)
+  }, [isLiveUserSpeaking])
+
+  React.useEffect(() => {
+    setIsAiSpeaking(isLivePatientSpeaking)
+  }, [isLivePatientSpeaking])
 
   const fetchHubData = React.useCallback(async () => {
     if (!userId || userRole !== 'Student') return
@@ -342,19 +401,11 @@ export default function Page() {
     setIsAiSpeaking(false)
   }, [])
 
-  const stopListening = React.useCallback((abort = false) => {
-    const recognition = speechRecognitionRef.current
-    if (!recognition) {
-      setIsListening(false)
-      setVoiceMode(false)
-      return
-    }
-    if (abort && typeof recognition.abort === 'function') {
-      recognition.abort()
-    } else {
-      recognition.stop()
-    }
-  }, [])
+  const stopListening = React.useCallback((_abort = false) => {
+    disconnectLiveVoice()
+    setIsListening(false)
+    setVoiceMode(false)
+  }, [disconnectLiveVoice])
 
   const speakAssistantWithAvatar = React.useCallback(
     async (text: string) => {
@@ -513,7 +564,6 @@ export default function Page() {
     try {
       await fetch('/api/auth/logout', { method: 'POST' })
     } finally {
-      ignoreTranscriptRef.current = true
       stopListening(true)
       stopTts()
       setUserId(null)
@@ -526,6 +576,7 @@ export default function Page() {
       setActiveSimulationDescription('')
       setActiveSimulationArchetype('clinical')
       setActiveSimulationIsPracticeMode(false)
+      setActiveInteractionModes(DEFAULT_INTERACTION_MODES)
       setActivePatientVoice(DEFAULT_PATIENT_VOICE)
       setActiveConversationStarters([])
       setSimulationStartedAt(null)
@@ -591,13 +642,24 @@ export default function Page() {
           : DEFAULT_PATIENT_VOICE,
       )
       setActiveSimulationIsPracticeMode(Boolean(assignment.isPracticeMode))
+      const interactionModes: InteractionModes = {
+        text: setup.interactionModes?.text !== false,
+        speak: setup.interactionModes?.speak !== false,
+        video: archetype === 'clinical' && setup.interactionModes?.video !== false,
+      }
+      if (!interactionModes.text && !interactionModes.speak && !interactionModes.video) {
+        interactionModes.text = true
+      }
+      setActiveInteractionModes(interactionModes)
       setActiveConversationStarters(
         Array.isArray(setup.conversationStarters)
           ? setup.conversationStarters.map((item: any) => String(item || '')).filter((item: string) => item.trim().length > 0)
           : []
       )
       setSimulationStartedAt(Date.now())
-      setInteractionMode('text')
+      setInteractionMode(
+        interactionModes.text ? 'text' : interactionModes.speak ? 'voice' : 'avatar',
+      )
       setView('chat')
     } catch (err: any) {
       setError(err?.message || 'Failed to start simulation')
@@ -638,7 +700,6 @@ export default function Page() {
         throw new Error(detail || 'Failed to complete simulation')
       }
 
-      ignoreTranscriptRef.current = true
       stopListening(true)
       stopTts()
       setVoiceMode(false)
@@ -652,6 +713,7 @@ export default function Page() {
       setActiveSimulationArchetype('clinical')
       setActivePatientVoice(DEFAULT_PATIENT_VOICE)
       setActiveSimulationIsPracticeMode(false)
+      setActiveInteractionModes(DEFAULT_INTERACTION_MODES)
       setActiveConversationStarters([])
       setSimulationStartedAt(null)
       setInteractionMode('text')
@@ -696,7 +758,6 @@ export default function Page() {
         window.history.replaceState({}, '', next)
       }
     }
-    ignoreTranscriptRef.current = true
     stopListening(true)
     stopTts()
     setVoiceMode(false)
@@ -704,6 +765,7 @@ export default function Page() {
     setActivePatientVoice(DEFAULT_PATIENT_VOICE)
     setActiveSimulationArchetype('clinical')
     setActiveSimulationIsPracticeMode(false)
+    setActiveInteractionModes(DEFAULT_INTERACTION_MODES)
     setActiveConversationStarters([])
     setInteractionMode('text')
     clear()
@@ -729,90 +791,23 @@ export default function Page() {
     })
   }
 
-  const startSpeechRecognition = () => {
-    const SpeechRecognitionCtor =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-    if (!SpeechRecognitionCtor) {
-      setVoiceError('Speech recognition is not supported in this browser')
-      setVoiceMode(false)
-      setIsListening(false)
-      return
-    }
-
-    transcriptBufferRef.current = ''
-    ignoreTranscriptRef.current = false
-
-    const recognition = new SpeechRecognitionCtor()
-    speechRecognitionRef.current = recognition
-    recognition.lang = 'en-US'
-    recognition.continuous = false
-    recognition.interimResults = true
-
-    recognition.onstart = () => {
-      setIsListening(true)
-      setVoiceMode(true)
-    }
-
-    recognition.onresult = (event: any) => {
-      let finalized = ''
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const result = event.results[i]
-        if (result.isFinal) {
-          finalized += String(result[0]?.transcript || '')
-        }
-      }
-      if (finalized) {
-        transcriptBufferRef.current = `${transcriptBufferRef.current} ${finalized}`.trim()
-      }
-    }
-
-    recognition.onerror = (event: any) => {
-      if (event?.error && event.error !== 'no-speech' && event.error !== 'aborted') {
-        setVoiceError(`Microphone error: ${event.error}`)
-      }
-    }
-
-    recognition.onend = () => {
-      setIsListening(false)
-      setVoiceMode(false)
-      const transcript = transcriptBufferRef.current.trim()
-      transcriptBufferRef.current = ''
-      speechRecognitionRef.current = null
-      if (!transcript || ignoreTranscriptRef.current) {
-        ignoreTranscriptRef.current = false
-        return
-      }
-      const historyToSend = messagesRef.current.slice()
-      addMessage({ role: 'user', content: transcript })
-      void handleSendMessage(transcript, {
-        userMessageAlreadyAppended: true,
-        messageHistory: historyToSend,
-        inputMethod: 'voice',
-        responseMode: interactionMode,
-      })
-    }
-
-    recognition.start()
-  }
-
   const toggleVoiceMode = () => {
     setVoiceError(null)
-    if (isListening) {
+    if (isLiveVoiceConnected || isLiveVoiceConnecting) {
       stopListening(false)
       return
     }
-    startSpeechRecognition()
+    void connectLiveVoice().catch(() => null)
   }
 
   React.useEffect(() => {
-    if (interactionMode !== 'voice' && isListening) {
+    if (interactionMode !== 'voice' && (isLiveVoiceConnected || isLiveVoiceConnecting)) {
       stopListening(false)
     }
-  }, [interactionMode, isListening, stopListening])
+  }, [interactionMode, isLiveVoiceConnected, isLiveVoiceConnecting, stopListening])
 
   React.useEffect(() => {
     return () => {
-      ignoreTranscriptRef.current = true
       stopListening(true)
       stopTts()
     }
@@ -1015,13 +1010,18 @@ export default function Page() {
                 }
                 showVoiceButton={true}
                 voiceMode={voiceMode}
+                isVoiceConnecting={isLiveVoiceConnecting}
                 onToggleVoiceMode={toggleVoiceMode}
                 isListening={isListening}
                 isAiSpeaking={isAiSpeaking}
                 interactionMode={interactionMode}
                 allowAvatarMode={isClinicalArchetype}
+                allowedInteractionModes={activeInteractionModes}
                 onInteractionModeChange={(mode) => {
                   if (!isClinicalArchetype && mode === 'avatar') return
+                  if (mode === 'text' && !activeInteractionModes.text) return
+                  if (mode === 'voice' && !activeInteractionModes.speak) return
+                  if (mode === 'avatar' && !activeInteractionModes.video) return
                   setInteractionMode(mode)
                   setVoiceError(null)
                 }}

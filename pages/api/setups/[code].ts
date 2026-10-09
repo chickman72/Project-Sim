@@ -26,6 +26,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           return res.status(404).json({ error: 'Setup not found' })
         }
 
+        if (session?.role === 'Student' && resource.isEnabled === false) {
+          return res.status(403).json({ error: 'This simulation is currently unavailable.' })
+        }
+
         const visibility = resource.visibility || (resource.assignedCohortId ? 'cohort' : 'global')
 
         // Non-global simulations require authentication.
@@ -58,19 +62,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           prompt: resource.prompt,
           archetype:
             resource.archetype === 'tutor' || resource.archetype === 'assistant' ? resource.archetype : 'clinical',
-          targetCohorts: (() => {
-            const normalized = Array.isArray(resource.targetCohorts)
-              ? Array.from(
-                  new Set(
-                    resource.targetCohorts
-                      .map((item: any) => String(item || '').trim())
-                      .filter((item: string) => item.length > 0),
-                  ),
-                )
-              : []
-            return normalized.length > 0 ? normalized : ['global']
-          })(),
           knowledgeBaseMode: resource.knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
+          interactionModes: {
+            text: resource.interactionModes?.text !== false,
+            speak: resource.interactionModes?.speak !== false,
+            video:
+              (resource.archetype || 'clinical') === 'clinical' && resource.interactionModes?.video !== false,
+          },
           uploadedDocuments: Array.isArray(resource.uploadedDocuments)
             ? resource.uploadedDocuments
                 .map((item: any) => ({

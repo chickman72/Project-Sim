@@ -79,7 +79,7 @@ export type AuditRecord = {
   errorJson?: string
 }
 
-export type AdminAuditAction = 'CREATE_SIM' | 'UPDATE_SIM' | 'DELETE_SIM' | 'CREATE_COHORT' | 'UPDATE_COHORT' | 'DELETE_COHORT' | 'ADD_STUDENT_TO_COHORT' | 'REMOVE_STUDENT_FROM_COHORT'
+export type AdminAuditAction = 'CREATE_SIM' | 'UPDATE_SIM' | 'DELETE_SIM' | 'ENABLE_SIM' | 'DISABLE_SIM' | 'CREATE_COHORT' | 'UPDATE_COHORT' | 'DELETE_COHORT' | 'ADD_STUDENT_TO_COHORT' | 'REMOVE_STUDENT_FROM_COHORT'
 
 export type AdminAuditLog = {
   logId: string

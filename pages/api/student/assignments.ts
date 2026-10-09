@@ -12,6 +12,7 @@ type Assignment = {
   assignedCohortId?: string
   visibility?: 'global' | 'cohort' | 'private'
   isPracticeMode?: boolean
+  isEnabled?: boolean
   isGlobal: boolean
 }
 
@@ -70,12 +71,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const setupsContainer = await getSetupsContainer()
     const { resources } = await setupsContainer.items
       .query<Assignment>(
-        'SELECT c.id, c.code, c.title, c.description, c.archetype, c.assignedCohortId, c.visibility, c.isPracticeMode FROM c',
+        'SELECT c.id, c.code, c.title, c.description, c.archetype, c.assignedCohortId, c.visibility, c.isPracticeMode, c.isEnabled FROM c',
       )
       .fetchAll()
 
     const activeAssignments = resources
       .filter((sim) => {
+        if (sim.isEnabled === false) return false
         const visibility = sim.visibility || (sim.assignedCohortId ? 'cohort' : 'global')
         const accessible =
           visibility === 'global'

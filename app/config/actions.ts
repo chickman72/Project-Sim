@@ -21,6 +21,7 @@ type RubricCriterion = {
 type KnowledgeBaseMode = 'standard' | 'strict_rag'
 type AgentArchetype = 'clinical' | 'tutor' | 'assistant'
 type SimulationVisibility = 'global' | 'cohort' | 'private'
+type InteractionModes = { text: boolean; speak: boolean; video: boolean }
 type UploadableFile = {
   name: string
   size: number
@@ -41,9 +42,9 @@ type SaveSimulationInput = {
   patientVoice?: string
   visibility?: SimulationVisibility
   assignedCohortId?: string
-  targetCohorts?: string[]
   archetype?: AgentArchetype
   isPracticeMode?: boolean
+  interactionModes?: Partial<InteractionModes>
   conversationStarters?: string[]
   rubric?: RubricCriterion[]
   knowledgeBaseMode?: KnowledgeBaseMode
@@ -100,17 +101,14 @@ export async function saveSimulation(input: SaveSimulationInput) {
 
   const normalizedArchetype: AgentArchetype =
     input?.archetype === 'tutor' || input?.archetype === 'assistant' ? input.archetype : 'clinical'
-
-  const normalizedTargetCohorts = Array.isArray(input?.targetCohorts)
-    ? Array.from(
-        new Set(
-          input.targetCohorts
-            .map((item) => String(item || '').trim())
-            .filter((item) => item.length > 0),
-        ),
-      )
-    : []
-  if (normalizedTargetCohorts.length === 0) normalizedTargetCohorts.push('global')
+  const normalizedInteractionModes: InteractionModes = {
+    text: input?.interactionModes?.text !== false,
+    speak: input?.interactionModes?.speak !== false,
+    video: normalizedArchetype === 'clinical' && input?.interactionModes?.video !== false,
+  }
+  if (!normalizedInteractionModes.text && !normalizedInteractionModes.speak && !normalizedInteractionModes.video) {
+    throw new Error('At least one student response option must be enabled')
+  }
 
   const normalizedConversationStarters = Array.isArray(input?.conversationStarters)
     ? input.conversationStarters.map((item) => String(item || '').trim()).filter((item) => item.length > 0)
@@ -151,11 +149,12 @@ export async function saveSimulation(input: SaveSimulationInput) {
     description: String(input?.description || ''),
     prompt,
     archetype: normalizedArchetype,
-    targetCohorts: normalizedTargetCohorts,
     patientVoice: String(input?.patientVoice || 'en-US-JennyNeural').trim() || 'en-US-JennyNeural',
     visibility,
     assignedCohortId,
     isPracticeMode: Boolean(input?.isPracticeMode),
+    interactionModes: normalizedInteractionModes,
+    isEnabled: existingSetup?.isEnabled !== false,
     conversationStarters: normalizedConversationStarters,
     rubric: normalizedRubric,
     knowledgeBaseMode: input?.knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
@@ -174,6 +173,27 @@ export async function saveSimulation(input: SaveSimulationInput) {
 
   revalidatePath('/config')
   return resource
+}
+
+export async function setSimulationEnabled(simulationId: string, isEnabled: boolean) {
+  const { session, container, setupId, resource } = await assertInstructorSimulationAccess(simulationId)
+  const updatedAt = new Date().toISOString()
+
+  const { resource: updated } = await container.items.upsert({
+    ...resource,
+    isEnabled: Boolean(isEnabled),
+    updatedAt,
+  })
+
+  await logAdminAction(session.userId, isEnabled ? 'ENABLE_SIM' : 'DISABLE_SIM', setupId, {
+    title: resource.title || '',
+    isEnabled: Boolean(isEnabled),
+    updatedAt,
+  })
+
+  revalidatePath('/config')
+  revalidatePath('/sim')
+  return { success: true, isEnabled: updated?.isEnabled !== false }
 }
 
 export async function duplicateSimulation(originalId: string, newTitle: string) {
@@ -216,22 +236,15 @@ export async function duplicateSimulation(originalId: string, newTitle: string) 
       original.archetype === 'tutor' || original.archetype === 'assistant'
         ? (original.archetype as AgentArchetype)
         : ('clinical' as AgentArchetype),
-    targetCohorts: (() => {
-      const normalized = Array.isArray(original.targetCohorts)
-        ? Array.from(
-            new Set(
-              original.targetCohorts
-                .map((item: any) => String(item || '').trim())
-                .filter((item: string) => item.length > 0),
-            ),
-          )
-        : []
-      return normalized.length > 0 ? normalized : ['global']
-    })(),
     patientVoice: typeof original.patientVoice === 'string' ? original.patientVoice : 'en-US-JennyNeural',
     visibility: original.visibility || (original.assignedCohortId ? 'cohort' : 'global'),
     assignedCohortId: original.assignedCohortId || undefined,
     isPracticeMode: false,
+    interactionModes: {
+      text: original.interactionModes?.text !== false,
+      speak: original.interactionModes?.speak !== false,
+      video: (original.archetype || 'clinical') === 'clinical' && original.interactionModes?.video !== false,
+    },
     conversationStarters: Array.isArray(original.conversationStarters)
       ? original.conversationStarters.map((item: any) => String(item || '')).filter((item: string) => item.trim().length > 0)
       : [],

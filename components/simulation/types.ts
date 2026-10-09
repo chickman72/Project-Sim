@@ -14,16 +14,22 @@ export type UploadedSimulationDocument = {
   blobUrl: string
 }
 
+export type InteractionModes = {
+  text: boolean
+  speak: boolean
+  video: boolean
+}
+
 export type DraftSimulation = {
   archetype: 'clinical' | 'tutor' | 'assistant'
   title: string
   description: string
   prompt: string
   patientVoice: string
-  targetCohorts: string[]
   visibility: 'global' | 'cohort' | 'private'
   assignedCohortId?: string
   isPracticeMode: boolean
+  interactionModes: InteractionModes
   conversationStarters: string[]
   rubric: RubricCriterion[]
   knowledgeBaseMode: 'standard' | 'strict_rag'

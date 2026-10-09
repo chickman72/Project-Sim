@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import BrandLoader from '../BrandLoader'
 import type { ChatMessage } from './types'
+import type { InteractionModes } from './types'
 
 const normalizeAssistantMarkdown = (content: string) =>
   content.replace(/\\([\\`*_[\]{}()#+.!>-])/g, '$1')
@@ -23,12 +24,14 @@ type Props = {
   onResetPreview?: () => void
   showVoiceButton?: boolean
   voiceMode?: boolean
+  isVoiceConnecting?: boolean
   onToggleVoiceMode?: () => void
   isListening?: boolean
   isAiSpeaking?: boolean
   interactionMode?: 'text' | 'voice' | 'avatar'
   onInteractionModeChange?: (mode: 'text' | 'voice' | 'avatar') => void
   allowAvatarMode?: boolean
+  allowedInteractionModes?: InteractionModes
 }
 
 export default function SimulationChatInterface({
@@ -47,12 +50,14 @@ export default function SimulationChatInterface({
   onResetPreview,
   showVoiceButton = false,
   voiceMode = false,
+  isVoiceConnecting = false,
   onToggleVoiceMode,
   isListening = false,
   isAiSpeaking = false,
   interactionMode = 'text',
   onInteractionModeChange,
   allowAvatarMode = true,
+  allowedInteractionModes = { text: true, speak: true, video: true },
 }: Props) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 flex flex-col">
@@ -77,7 +82,11 @@ export default function SimulationChatInterface({
               { key: 'voice' as const, label: 'Speak' },
               { key: 'avatar' as const, label: 'Video' },
             ]
-              .filter((mode) => allowAvatarMode || mode.key !== 'avatar')
+              .filter((mode) => {
+                if (mode.key === 'text') return allowedInteractionModes.text
+                if (mode.key === 'voice') return allowedInteractionModes.speak
+                return allowAvatarMode && allowedInteractionModes.video
+              })
               .map((mode) => (
               <button
                 key={mode.key}
@@ -159,7 +168,11 @@ export default function SimulationChatInterface({
               onClick={onToggleVoiceMode}
               type="button"
             >
-              {isListening ? 'Listening...' : 'Hold to Speak'}
+              {isVoiceConnecting
+                ? 'Connecting...'
+                : voiceMode
+                  ? 'End Voice Conversation'
+                  : 'Start Voice Conversation'}
             </button>
           )}
           {interactionMode !== 'voice' && (
@@ -168,8 +181,14 @@ export default function SimulationChatInterface({
             </button>
           )}
         </div>
-        {showVoiceButton && (isListening || loading || isAiSpeaking) && (
+        {showVoiceButton && (voiceMode || isListening || loading || isAiSpeaking) && (
           <div className="mt-2 flex flex-wrap items-center gap-3 text-xs">
+            {voiceMode && !isListening && !isAiSpeaking && (
+              <span className="inline-flex items-center gap-2 text-emerald-700">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                Live voice active
+              </span>
+            )}
             {isListening && (
               <span className="inline-flex items-center gap-2 text-red-600">
                 <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse" />

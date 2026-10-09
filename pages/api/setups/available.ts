@@ -11,6 +11,7 @@ interface AvailableSimulation {
   assignedCohortId?: string
   visibility?: 'global' | 'cohort' | 'private'
   isPracticeMode?: boolean
+  isEnabled?: boolean
   isGlobal: boolean
 }
 
@@ -31,7 +32,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Get all simulations
       const container = await getSetupsContainer()
       const { resources: allSetups } = await container.items
-        .query('SELECT c.id, c.code, c.title, c.description, c.assignedCohortId, c.visibility, c.isPracticeMode FROM c')
+        .query('SELECT c.id, c.code, c.title, c.description, c.assignedCohortId, c.visibility, c.isPracticeMode, c.isEnabled FROM c')
         .fetchAll()
 
       // Filter simulations:
@@ -39,6 +40,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // 2. Simulations assigned to student's cohorts
       const availableSimulations: AvailableSimulation[] = (allSetups as any[])
         .filter(sim => {
+          if (sim.isEnabled === false) return false
           const visibility = sim.visibility || (sim.assignedCohortId ? 'cohort' : 'global')
           if (visibility === 'private') {
             return false

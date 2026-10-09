@@ -7,15 +7,14 @@ import NeedsReviewDashboard from '../../components/NeedsReviewDashboard'
 import BrandWordmark from '../../components/BrandWordmark'
 import SimulationPreview from '../../components/simulation/SimulationPreview'
 import UserDashboard from '../../components/UserDashboard'
-import type { DraftSimulation, RubricCriterion, UploadedSimulationDocument } from '../../components/simulation/types'
-import { deleteSimulationDocument, duplicateSimulation, saveSimulation, uploadSimulationDocument } from './actions'
+import type { DraftSimulation, InteractionModes, RubricCriterion, UploadedSimulationDocument } from '../../components/simulation/types'
+import { deleteSimulationDocument, duplicateSimulation, saveSimulation, setSimulationEnabled, uploadSimulationDocument } from './actions'
 
 type SimulationVisibility = 'global' | 'cohort' | 'private'
 type AgentArchetype = 'clinical' | 'tutor' | 'assistant'
 type Simulation = {
   code: string
   archetype?: AgentArchetype
-  targetCohorts?: string[]
   prompt: string
   title: string
   description: string
@@ -23,6 +22,8 @@ type Simulation = {
   assignedCohortId?: string
   visibility?: SimulationVisibility
   isPracticeMode?: boolean
+  interactionModes?: InteractionModes
+  isEnabled?: boolean
   conversationStarters?: string[]
   rubric?: RubricCriterion[]
   knowledgeBaseMode?: 'standard' | 'strict_rag'
@@ -52,27 +53,14 @@ const defaultDraftSim: DraftSimulation = {
   description: '',
   prompt: 'You are the patient in this scenario. Respond in English only.',
   patientVoice: DEFAULT_PATIENT_VOICE,
-  targetCohorts: ['global'],
   visibility: 'global',
   assignedCohortId: undefined,
   isPracticeMode: false,
+  interactionModes: { text: true, speak: true, video: true },
   conversationStarters: [],
   rubric: [],
   knowledgeBaseMode: 'standard',
   uploadedDocuments: [],
-}
-
-const normalizeTargetCohorts = (value: unknown): string[] => {
-  const normalized = Array.isArray(value)
-    ? Array.from(
-        new Set(
-          value
-            .map((item) => String(item || '').trim())
-            .filter((item) => item.length > 0),
-        ),
-      )
-    : []
-  return normalized.length > 0 ? normalized : ['global']
 }
 
 export default function Page() {
@@ -98,6 +86,7 @@ export default function Page() {
   const [duplicateTargetId, setDuplicateTargetId] = useState<string | null>(null)
   const [newSimTitle, setNewSimTitle] = useState('')
   const [isDuplicating, setIsDuplicating] = useState(false)
+  const [togglingSimulationId, setTogglingSimulationId] = useState<string | null>(null)
   const [isUploadingDocument, setIsUploadingDocument] = useState(false)
   const [deletingDocumentUrl, setDeletingDocumentUrl] = useState<string | null>(null)
   const [documentUploadError, setDocumentUploadError] = useState<string | null>(null)
@@ -125,10 +114,15 @@ export default function Page() {
           title: s.title || '',
           description: s.description || '',
           archetype: s.archetype === 'tutor' || s.archetype === 'assistant' ? s.archetype : 'clinical',
-          targetCohorts: normalizeTargetCohorts(s.targetCohorts),
           assignedCohortId: s.assignedCohortId,
           visibility: s.visibility || (s.assignedCohortId ? 'cohort' : 'global'),
           isPracticeMode: Boolean(s.isPracticeMode),
+          interactionModes: {
+            text: s.interactionModes?.text !== false,
+            speak: s.interactionModes?.speak !== false,
+            video: (s.archetype || 'clinical') === 'clinical' && s.interactionModes?.video !== false,
+          },
+          isEnabled: s.isEnabled !== false,
           patientVoice:
             typeof s.patientVoice === 'string' && s.patientVoice.trim().length > 0
               ? s.patientVoice.trim()
@@ -218,8 +212,12 @@ export default function Page() {
           : DEFAULT_PATIENT_VOICE,
       visibility,
       assignedCohortId: visibility === 'cohort' ? setup.assignedCohortId : undefined,
-      targetCohorts: normalizeTargetCohorts(setup.targetCohorts),
       isPracticeMode: Boolean(setup.isPracticeMode),
+      interactionModes: {
+        text: setup.interactionModes?.text !== false,
+        speak: setup.interactionModes?.speak !== false,
+        video: (setup.archetype || 'clinical') === 'clinical' && setup.interactionModes?.video !== false,
+      },
       conversationStarters: Array.isArray(setup.conversationStarters) ? setup.conversationStarters : [],
       rubric: Array.isArray(setup.rubric) ? setup.rubric : [],
       knowledgeBaseMode: setup.knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
@@ -264,9 +262,9 @@ export default function Page() {
       description: draftSim.description,
       prompt: draftSim.prompt,
       patientVoice: draftSim.patientVoice || DEFAULT_PATIENT_VOICE,
-      targetCohorts: normalizeTargetCohorts(draftSim.targetCohorts),
       visibility: draftSim.visibility,
       isPracticeMode: draftSim.isPracticeMode,
+      interactionModes: draftSim.interactionModes,
       conversationStarters: draftSim.conversationStarters,
       rubric: draftSim.rubric,
       knowledgeBaseMode: draftSim.knowledgeBaseMode,
@@ -436,6 +434,24 @@ export default function Page() {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Error deleting setup')
+    }
+  }
+
+  const toggleSimulation = async (setup: Simulation) => {
+    const nextEnabled = setup.isEnabled === false
+    try {
+      setError(null)
+      setTogglingSimulationId(setup.code)
+      const result = await setSimulationEnabled(setup.code, nextEnabled)
+      setSetups((current) =>
+        current.map((item) =>
+          item.code === setup.code ? { ...item, isEnabled: result.isEnabled } : item,
+        ),
+      )
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Error updating scenario availability')
+    } finally {
+      setTogglingSimulationId(null)
     }
   }
 
@@ -638,7 +654,21 @@ export default function Page() {
                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                           {group.setups.map((setup) => (
                             <div key={setup.code} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-                              <p className="font-semibold text-gray-800">{setup.title || 'Untitled'}</p>
+                              <div className="flex items-start justify-between gap-3">
+                                <p className="font-semibold text-gray-800">{setup.title || 'Untitled'}</p>
+                                <label className="inline-flex cursor-pointer items-center gap-2 text-xs font-medium text-gray-700">
+                                  <span>{setup.isEnabled === false ? 'Off' : 'On'}</span>
+                                  <input
+                                    type="checkbox"
+                                    className="peer sr-only"
+                                    checked={setup.isEnabled !== false}
+                                    disabled={togglingSimulationId === setup.code}
+                                    onChange={() => void toggleSimulation(setup)}
+                                    aria-label={`${setup.isEnabled === false ? 'Enable' : 'Disable'} ${setup.title || 'scenario'}`}
+                                  />
+                                  <span className="relative h-5 w-9 rounded-full bg-gray-300 transition-colors peer-checked:bg-green-600 peer-disabled:cursor-wait peer-disabled:opacity-60 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4" />
+                                </label>
+                              </div>
                               {setup.description && (
                                 <p className="text-sm text-gray-600 mt-2 line-clamp-3">{setup.description}</p>
                               )}
@@ -658,7 +688,6 @@ export default function Page() {
                                 <p>Practice: {setup.isPracticeMode ? 'Yes' : 'No'}</p>
                                 <p>Archetype: {getArchetypeLabel(setup.archetype)}</p>
                                 <p>Voice: {setup.patientVoice || DEFAULT_PATIENT_VOICE}</p>
-                                <p>Target Cohorts: {normalizeTargetCohorts(setup.targetCohorts).join(', ')}</p>
                                 <p>AI Mode: {setup.knowledgeBaseMode === 'strict_rag' ? 'Document Grounded' : 'Standard'}</p>
                                 <p>Rubric Criteria: {Array.isArray(setup.rubric) ? setup.rubric.length : 0}</p>
                               </div>
@@ -822,26 +851,6 @@ export default function Page() {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Target Cohorts</label>
-                    <input
-                      value={normalizeTargetCohorts(draftSim.targetCohorts).join(', ')}
-                      onChange={(e) => {
-                        const parsed = e.target.value
-                          .split(',')
-                          .map((item) => item.trim())
-                          .filter((item) => item.length > 0)
-                        setDraftSim((prev) => ({ ...prev, targetCohorts: parsed.length > 0 ? Array.from(new Set(parsed)) : ['global'] }))
-                        setIsDirty(true)
-                      }}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 mb-4"
-                      placeholder="global, summer-2026-NAI611"
-                    />
-                    <p className="text-xs text-gray-500 mb-4">
-                      Enter one or more cohort tags to target this scenario experience.
-                    </p>
-                  </div>
-
-                  <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
                     <textarea
                       value={draftSim.description}
@@ -886,6 +895,51 @@ export default function Page() {
                         No classes available. Create a class in the Class Management section to assign scenarios.
                       </p>
                     )}
+                  </div>
+
+                  <div className="mb-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Student Response Options</label>
+                    <div className="grid grid-cols-3 gap-2 rounded-md border border-gray-200 bg-gray-50 p-3">
+                      {([
+                        { key: 'text', label: 'Text' },
+                        { key: 'speak', label: 'Speak' },
+                        { key: 'video', label: 'Video' },
+                      ] as const).map((option) => {
+                        const isVideoUnavailable = option.key === 'video' && draftSim.archetype !== 'clinical'
+                        const isChecked = isVideoUnavailable ? false : draftSim.interactionModes[option.key]
+                        const enabledCount = Object.entries(draftSim.interactionModes).filter(
+                          ([key, enabled]) => enabled && (key !== 'video' || draftSim.archetype === 'clinical'),
+                        ).length
+                        const wouldDisableLast = isChecked && enabledCount === 1
+
+                        return (
+                          <label
+                            key={option.key}
+                            className={`flex items-center justify-between gap-2 rounded-md border bg-white px-3 py-2 text-sm font-medium ${
+                              isVideoUnavailable ? 'cursor-not-allowed text-gray-400' : 'cursor-pointer text-gray-800'
+                            }`}
+                            title={isVideoUnavailable ? 'Video is available for Clinical Simulator scenarios only.' : undefined}
+                          >
+                            {option.label}
+                            <input
+                              type="checkbox"
+                              className="peer sr-only"
+                              checked={isChecked}
+                              disabled={isVideoUnavailable || wouldDisableLast}
+                              onChange={(e) => {
+                                setDraftSim((prev) => ({
+                                  ...prev,
+                                  interactionModes: { ...prev.interactionModes, [option.key]: e.target.checked },
+                                }))
+                                setIsDirty(true)
+                              }}
+                            />
+                            <span className="relative h-5 w-9 shrink-0 rounded-full bg-gray-300 transition-colors peer-checked:bg-blue-600 peer-disabled:opacity-50 after:absolute after:left-0.5 after:top-0.5 after:h-4 after:w-4 after:rounded-full after:bg-white after:shadow after:transition-transform peer-checked:after:translate-x-4" />
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500">Choose how students can interact. At least one option must remain enabled.</p>
                   </div>
 
                   {draftSim.archetype === 'clinical' && (

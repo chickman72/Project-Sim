@@ -26,6 +26,15 @@ LITELLM_MODEL=gpt-4o-mini
 
 # The legacy LLMLITE_URL, LLMLITE_API_KEY, and LLMLITE_MODEL names are also supported.
 
+# GPT-Live voice conversation (Speak mode):
+# AZURE_OPENAI_LIVE_ENDPOINT=https://your-resource.openai.azure.com/
+# AZURE_OPENAI_LIVE_API_KEY=your-resource-key
+# AZURE_OPENAI_LIVE_DEPLOYMENT=gpt-live-1
+# If the LIVE endpoint/key are omitted, AZURE_OPENAI_ENDPOINT and
+# AZURE_OPENAI_API_KEY are used. Male Azure case voices map to `cedar`; female
+# Azure case voices map to `marin`. A GPT-Live voice name can also be stored
+# directly as the simulation's patientVoice.
+
 # App login (required):
 # AUTH_PASSWORD=choose-a-password
 # SESSION_SECRET=long-random-string

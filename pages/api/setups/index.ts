@@ -50,11 +50,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         assignedCohortId,
         visibility,
         isPracticeMode,
+        interactionModes,
+        isEnabled,
         rubric,
         conversationStarters,
         knowledgeBaseMode,
         archetype,
-        targetCohorts,
         uploadedDocuments,
       } = req.body
       if (!code || !prompt) {
@@ -141,17 +142,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ error: 'archetype must be one of: clinical, tutor, assistant' })
       }
 
-      const normalizedTargetCohorts: string[] = Array.isArray(targetCohorts)
-        ? Array.from(
-            new Set(
-              targetCohorts
-                .map((item: any) => String(item || '').trim())
-                .filter((item: string) => item.length > 0),
-            ),
-          )
-        : []
-      if (normalizedTargetCohorts.length === 0) {
-        normalizedTargetCohorts.push('global')
+      const normalizedInteractionModes = {
+        text: interactionModes?.text !== false,
+        speak: interactionModes?.speak !== false,
+        video: normalizedArchetype === 'clinical' && interactionModes?.video !== false,
+      }
+      if (!normalizedInteractionModes.text && !normalizedInteractionModes.speak && !normalizedInteractionModes.video) {
+        return res.status(400).json({ error: 'At least one student response option must be enabled' })
       }
 
       const container = await getSetupsContainer()
@@ -172,11 +169,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         description,
         prompt,
         archetype: normalizedArchetype,
-        targetCohorts: normalizedTargetCohorts,
         patientVoice: normalizedPatientVoice,
         visibility: normalizedVisibility,
         assignedCohortId: normalizedAssignedCohortId,
         isPracticeMode: Boolean(isPracticeMode),
+        interactionModes: normalizedInteractionModes,
+        isEnabled: typeof isEnabled === 'boolean' ? isEnabled : existingSetup?.isEnabled !== false,
         conversationStarters: normalizedConversationStarters,
         rubric: normalizedRubric,
         knowledgeBaseMode: normalizedKnowledgeBaseMode,
