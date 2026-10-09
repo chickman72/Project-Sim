@@ -22,6 +22,14 @@ type KnowledgeBaseMode = 'standard' | 'strict_rag'
 type AgentArchetype = 'clinical' | 'tutor' | 'assistant'
 type SimulationVisibility = 'global' | 'cohort' | 'private'
 type InteractionModes = { text: boolean; speak: boolean; video: boolean }
+type SimulationPersona = {
+  id: string
+  name: string
+  presentation: 'male' | 'female'
+  voice: string
+  avatarCharacter: 'harry' | 'lisa'
+  avatarStyle: string
+}
 type UploadableFile = {
   name: string
   size: number
@@ -45,6 +53,7 @@ type SaveSimulationInput = {
   archetype?: AgentArchetype
   isPracticeMode?: boolean
   interactionModes?: Partial<InteractionModes>
+  personas?: SimulationPersona[]
   conversationStarters?: string[]
   rubric?: RubricCriterion[]
   knowledgeBaseMode?: KnowledgeBaseMode
@@ -109,6 +118,23 @@ export async function saveSimulation(input: SaveSimulationInput) {
   if (!normalizedInteractionModes.text && !normalizedInteractionModes.speak && !normalizedInteractionModes.video) {
     throw new Error('At least one student response option must be enabled')
   }
+  const normalizedPersonas: SimulationPersona[] = Array.isArray(input?.personas)
+    ? input.personas
+        .map((persona, index) => {
+          const presentation = persona?.presentation === 'male' ? 'male' : 'female'
+          return {
+            id: String(persona?.id || `persona-${index + 1}`).trim() || `persona-${index + 1}`,
+            name: String(persona?.name || '').trim(),
+            presentation,
+            voice:
+              String(persona?.voice || '').trim() ||
+              (presentation === 'male' ? 'en-US-GuyNeural' : 'en-US-JennyNeural'),
+            avatarCharacter: presentation === 'male' ? 'harry' : 'lisa',
+            avatarStyle: String(persona?.avatarStyle || 'casual-sitting').trim() || 'casual-sitting',
+          } as SimulationPersona
+        })
+        .filter((persona) => persona.name.length > 0)
+    : []
 
   const normalizedConversationStarters = Array.isArray(input?.conversationStarters)
     ? input.conversationStarters.map((item) => String(item || '').trim()).filter((item) => item.length > 0)
@@ -154,6 +180,7 @@ export async function saveSimulation(input: SaveSimulationInput) {
     assignedCohortId,
     isPracticeMode: Boolean(input?.isPracticeMode),
     interactionModes: normalizedInteractionModes,
+    personas: normalizedPersonas,
     isEnabled: existingSetup?.isEnabled !== false,
     conversationStarters: normalizedConversationStarters,
     rubric: normalizedRubric,
@@ -245,6 +272,23 @@ export async function duplicateSimulation(originalId: string, newTitle: string) 
       speak: original.interactionModes?.speak !== false,
       video: (original.archetype || 'clinical') === 'clinical' && original.interactionModes?.video !== false,
     },
+    personas: Array.isArray(original.personas)
+      ? original.personas
+          .map((persona: any, index: number) => {
+            const presentation = persona?.presentation === 'male' ? 'male' : 'female'
+            return {
+              id: String(persona?.id || `persona-${index + 1}`).trim() || `persona-${index + 1}`,
+              name: String(persona?.name || '').trim(),
+              presentation,
+              voice:
+                String(persona?.voice || '').trim() ||
+                (presentation === 'male' ? 'en-US-GuyNeural' : 'en-US-JennyNeural'),
+              avatarCharacter: presentation === 'male' ? 'harry' : 'lisa',
+              avatarStyle: String(persona?.avatarStyle || 'casual-sitting').trim() || 'casual-sitting',
+            }
+          })
+          .filter((persona: SimulationPersona) => persona.name.length > 0)
+      : [],
     conversationStarters: Array.isArray(original.conversationStarters)
       ? original.conversationStarters.map((item: any) => String(item || '')).filter((item: string) => item.trim().length > 0)
       : [],

@@ -51,6 +51,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         visibility,
         isPracticeMode,
         interactionModes,
+        personas,
         isEnabled,
         rubric,
         conversationStarters,
@@ -150,6 +151,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (!normalizedInteractionModes.text && !normalizedInteractionModes.speak && !normalizedInteractionModes.video) {
         return res.status(400).json({ error: 'At least one student response option must be enabled' })
       }
+      const normalizedPersonas = Array.isArray(personas)
+        ? personas
+            .map((persona: any, index: number) => {
+              const presentation = persona?.presentation === 'male' ? 'male' : 'female'
+              return {
+                id: String(persona?.id || `persona-${index + 1}`).trim() || `persona-${index + 1}`,
+                name: String(persona?.name || '').trim(),
+                presentation,
+                voice:
+                  String(persona?.voice || '').trim() ||
+                  (presentation === 'male' ? 'en-US-GuyNeural' : 'en-US-JennyNeural'),
+                avatarCharacter: presentation === 'male' ? 'harry' : 'lisa',
+                avatarStyle: String(persona?.avatarStyle || 'casual-sitting').trim() || 'casual-sitting',
+              }
+            })
+            .filter((persona: { name: string }) => persona.name.length > 0)
+        : []
 
       const container = await getSetupsContainer()
       
@@ -174,6 +192,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         assignedCohortId: normalizedAssignedCohortId,
         isPracticeMode: Boolean(isPracticeMode),
         interactionModes: normalizedInteractionModes,
+        personas: normalizedPersonas,
         isEnabled: typeof isEnabled === 'boolean' ? isEnabled : existingSetup?.isEnabled !== false,
         conversationStarters: normalizedConversationStarters,
         rubric: normalizedRubric,

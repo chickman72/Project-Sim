@@ -7,7 +7,7 @@ import NeedsReviewDashboard from '../../components/NeedsReviewDashboard'
 import BrandWordmark from '../../components/BrandWordmark'
 import SimulationPreview from '../../components/simulation/SimulationPreview'
 import UserDashboard from '../../components/UserDashboard'
-import type { DraftSimulation, InteractionModes, RubricCriterion, UploadedSimulationDocument } from '../../components/simulation/types'
+import type { DraftSimulation, InteractionModes, RubricCriterion, SimulationPersona, UploadedSimulationDocument } from '../../components/simulation/types'
 import { deleteSimulationDocument, duplicateSimulation, saveSimulation, setSimulationEnabled, uploadSimulationDocument } from './actions'
 
 type SimulationVisibility = 'global' | 'cohort' | 'private'
@@ -23,6 +23,7 @@ type Simulation = {
   visibility?: SimulationVisibility
   isPracticeMode?: boolean
   interactionModes?: InteractionModes
+  personas?: SimulationPersona[]
   isEnabled?: boolean
   conversationStarters?: string[]
   rubric?: RubricCriterion[]
@@ -57,6 +58,7 @@ const defaultDraftSim: DraftSimulation = {
   assignedCohortId: undefined,
   isPracticeMode: false,
   interactionModes: { text: true, speak: true, video: true },
+  personas: [],
   conversationStarters: [],
   rubric: [],
   knowledgeBaseMode: 'standard',
@@ -122,6 +124,23 @@ export default function Page() {
             speak: s.interactionModes?.speak !== false,
             video: (s.archetype || 'clinical') === 'clinical' && s.interactionModes?.video !== false,
           },
+          personas: Array.isArray(s.personas)
+            ? s.personas
+                .map((persona: any, index: number) => {
+                  const presentation = persona?.presentation === 'male' ? 'male' : 'female'
+                  return {
+                    id: String(persona?.id || `persona-${index + 1}`),
+                    name: String(persona?.name || ''),
+                    presentation,
+                    voice:
+                      String(persona?.voice || '') ||
+                      (presentation === 'male' ? 'en-US-GuyNeural' : 'en-US-JennyNeural'),
+                    avatarCharacter: presentation === 'male' ? 'harry' : 'lisa',
+                    avatarStyle: String(persona?.avatarStyle || 'casual-sitting'),
+                  } as SimulationPersona
+                })
+                .filter((persona: SimulationPersona) => persona.name.trim().length > 0)
+            : [],
           isEnabled: s.isEnabled !== false,
           patientVoice:
             typeof s.patientVoice === 'string' && s.patientVoice.trim().length > 0
@@ -218,6 +237,7 @@ export default function Page() {
         speak: setup.interactionModes?.speak !== false,
         video: (setup.archetype || 'clinical') === 'clinical' && setup.interactionModes?.video !== false,
       },
+      personas: Array.isArray(setup.personas) ? setup.personas : [],
       conversationStarters: Array.isArray(setup.conversationStarters) ? setup.conversationStarters : [],
       rubric: Array.isArray(setup.rubric) ? setup.rubric : [],
       knowledgeBaseMode: setup.knowledgeBaseMode === 'strict_rag' ? 'strict_rag' : 'standard',
@@ -265,6 +285,7 @@ export default function Page() {
       visibility: draftSim.visibility,
       isPracticeMode: draftSim.isPracticeMode,
       interactionModes: draftSim.interactionModes,
+      personas: draftSim.personas,
       conversationStarters: draftSim.conversationStarters,
       rubric: draftSim.rubric,
       knowledgeBaseMode: draftSim.knowledgeBaseMode,
@@ -1085,8 +1106,147 @@ export default function Page() {
                   )}
 
                   {draftSim.archetype === 'clinical' && (
+                    <div className="mb-4 rounded-md border border-gray-200 bg-gray-50 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-gray-900">Patient Personas</h3>
+                          <p className="mt-1 text-xs text-gray-600">
+                            Add each possible patient so voice and avatar match the persona selected for the encounter.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextNumber = draftSim.personas.length + 1
+                            setDraftSim((prev) => ({
+                              ...prev,
+                              personas: [
+                                ...prev.personas,
+                                {
+                                  id: `persona-${Date.now()}-${nextNumber}`,
+                                  name: '',
+                                  presentation: 'female',
+                                  voice: 'en-US-JennyNeural',
+                                  avatarCharacter: 'lisa',
+                                  avatarStyle: 'casual-sitting',
+                                },
+                              ],
+                            }))
+                            setIsDirty(true)
+                          }}
+                          className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                        >
+                          Add Persona
+                        </button>
+                      </div>
+
+                      {draftSim.personas.length === 0 ? (
+                        <p className="mt-3 text-sm text-gray-500">
+                          No persona list configured. This scenario will continue using the fallback patient voice.
+                        </p>
+                      ) : (
+                        <div className="mt-3 space-y-3">
+                          {draftSim.personas.map((persona, index) => (
+                            <div key={persona.id} className="rounded-md border border-gray-200 bg-white p-3">
+                              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_140px_1fr_auto] sm:items-end">
+                                <label className="text-xs font-medium text-gray-700">
+                                  Persona Name
+                                  <input
+                                    value={persona.name}
+                                    onChange={(e) => {
+                                      setDraftSim((prev) => ({
+                                        ...prev,
+                                        personas: prev.personas.map((item, itemIndex) =>
+                                          itemIndex === index ? { ...item, name: e.target.value } : item,
+                                        ),
+                                      }))
+                                      setIsDirty(true)
+                                    }}
+                                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                                    placeholder="e.g., Robert"
+                                  />
+                                </label>
+                                <label className="text-xs font-medium text-gray-700">
+                                  Presentation
+                                  <select
+                                    value={persona.presentation}
+                                    onChange={(e) => {
+                                      const presentation = e.target.value === 'male' ? 'male' : 'female'
+                                      setDraftSim((prev) => ({
+                                        ...prev,
+                                        personas: prev.personas.map((item, itemIndex) =>
+                                          itemIndex === index
+                                            ? {
+                                                ...item,
+                                                presentation,
+                                                voice:
+                                                  presentation === 'male'
+                                                    ? 'en-US-GuyNeural'
+                                                    : 'en-US-JennyNeural',
+                                                avatarCharacter: presentation === 'male' ? 'harry' : 'lisa',
+                                              }
+                                            : item,
+                                        ),
+                                      }))
+                                      setIsDirty(true)
+                                    }}
+                                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                                  >
+                                    <option value="female">Female</option>
+                                    <option value="male">Male</option>
+                                  </select>
+                                </label>
+                                <label className="text-xs font-medium text-gray-700">
+                                  Voice
+                                  <select
+                                    value={persona.voice}
+                                    onChange={(e) => {
+                                      setDraftSim((prev) => ({
+                                        ...prev,
+                                        personas: prev.personas.map((item, itemIndex) =>
+                                          itemIndex === index ? { ...item, voice: e.target.value } : item,
+                                        ),
+                                      }))
+                                      setIsDirty(true)
+                                    }}
+                                    className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                                  >
+                                    {PATIENT_VOICE_OPTIONS.filter((voice) =>
+                                      persona.presentation === 'male'
+                                        ? voice.value === 'en-US-GuyNeural' || voice.value === 'en-US-DavisNeural'
+                                        : voice.value === 'en-US-JennyNeural' || voice.value === 'en-US-AriaNeural',
+                                    ).map((voice) => (
+                                      <option key={voice.value} value={voice.value}>{voice.label}</option>
+                                    ))}
+                                  </select>
+                                </label>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setDraftSim((prev) => ({
+                                      ...prev,
+                                      personas: prev.personas.filter((_, itemIndex) => itemIndex !== index),
+                                    }))
+                                    setIsDirty(true)
+                                  }}
+                                  className="rounded-md border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                              <p className="mt-2 text-xs text-gray-500">
+                                Avatar: {persona.presentation === 'male' ? 'Harry' : 'Lisa'}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {draftSim.archetype === 'clinical' && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Patient Voice</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Fallback Patient Voice</label>
                       <select
                         value={draftSim.patientVoice || DEFAULT_PATIENT_VOICE}
                         onChange={(e) => {
@@ -1101,6 +1261,9 @@ export default function Page() {
                           </option>
                         ))}
                       </select>
+                      <p className="-mt-3 mb-4 text-xs text-gray-500">
+                        Used when no patient personas are configured.
+                      </p>
                     </div>
                   )}
 

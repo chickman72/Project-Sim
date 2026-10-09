@@ -9,7 +9,7 @@ import SimulationHeader from '../../components/simulation/SimulationHeader'
 import SimulationSidebar from '../../components/simulation/SimulationSidebar'
 import SimulationChatInterface from '../../components/simulation/SimulationChatInterface'
 import AvatarPlayer, { type AvatarPlayerHandle } from '../../components/simulation/AvatarPlayer'
-import type { ChatMessage, InteractionModes } from '../../components/simulation/types'
+import type { ChatMessage, InteractionModes, SimulationPersona } from '../../components/simulation/types'
 import { usePatientVoice } from '../../lib/usePatientVoice'
 
 type Assignment = {
@@ -134,6 +134,7 @@ export default function Page() {
   const [activeSimulationDescription, setActiveSimulationDescription] = useState('')
   const [activeSimulationArchetype, setActiveSimulationArchetype] = useState<SimulationArchetype>('clinical')
   const [activePatientVoice, setActivePatientVoice] = useState(DEFAULT_PATIENT_VOICE)
+  const [activePersona, setActivePersona] = useState<SimulationPersona | null>(null)
   const [activeSimulationIsPracticeMode, setActiveSimulationIsPracticeMode] = useState(false)
   const [activeInteractionModes, setActiveInteractionModes] = useState<InteractionModes>(DEFAULT_INTERACTION_MODES)
   const [activeConversationStarters, setActiveConversationStarters] = useState<string[]>([])
@@ -578,6 +579,7 @@ export default function Page() {
       setActiveSimulationIsPracticeMode(false)
       setActiveInteractionModes(DEFAULT_INTERACTION_MODES)
       setActivePatientVoice(DEFAULT_PATIENT_VOICE)
+      setActivePersona(null)
       setActiveConversationStarters([])
       setSimulationStartedAt(null)
       setInteractionMode('text')
@@ -627,20 +629,45 @@ export default function Page() {
       const setup = await setupResp.json()
       const basePrompt = setup.prompt || 'You are the patient in this scenario.'
       const archetype = normalizeArchetype(setup.archetype || assignment.archetype)
+      const personas: SimulationPersona[] = Array.isArray(setup.personas)
+        ? setup.personas
+            .map((persona: any, index: number) => {
+              const presentation = persona?.presentation === 'male' ? 'male' : 'female'
+              return {
+                id: String(persona?.id || `persona-${index + 1}`),
+                name: String(persona?.name || '').trim(),
+                presentation,
+                voice:
+                  String(persona?.voice || '').trim() ||
+                  (presentation === 'male' ? 'en-US-GuyNeural' : 'en-US-JennyNeural'),
+                avatarCharacter: presentation === 'male' ? 'harry' : 'lisa',
+                avatarStyle: String(persona?.avatarStyle || 'casual-sitting'),
+              } as SimulationPersona
+            })
+            .filter((persona: SimulationPersona) => persona.name.length > 0)
+        : []
+      const selectedPersona =
+        archetype === 'clinical' && personas.length > 0
+          ? personas[Math.floor(Math.random() * personas.length)]
+          : null
+      const personaLockedPrompt = selectedPersona
+        ? `${basePrompt}\n\nSESSION PERSONA SELECTION: For this entire encounter, you are ${selectedPersona.name}. Use only the persona details for ${selectedPersona.name}. Do not select, switch to, or portray another listed persona.`
+        : basePrompt
 
       clear()
       setInput('')
       setVoiceError(null)
-      setSystemPrompt(archetype === 'clinical' ? applyPatientRolePrompt(basePrompt) : basePrompt)
+      setSystemPrompt(archetype === 'clinical' ? applyPatientRolePrompt(personaLockedPrompt) : personaLockedPrompt)
       setActiveSimulationCode(assignment.code)
       setActiveSimulationTitle(setup.title || assignment.title || 'Simulation')
       setActiveSimulationDescription(setup.description || assignment.description || '')
       setActiveSimulationArchetype(archetype)
       setActivePatientVoice(
-        typeof setup.patientVoice === 'string' && setup.patientVoice.trim().length > 0
+        selectedPersona?.voice || (typeof setup.patientVoice === 'string' && setup.patientVoice.trim().length > 0
           ? setup.patientVoice.trim()
-          : DEFAULT_PATIENT_VOICE,
+          : DEFAULT_PATIENT_VOICE),
       )
+      setActivePersona(selectedPersona)
       setActiveSimulationIsPracticeMode(Boolean(assignment.isPracticeMode))
       const interactionModes: InteractionModes = {
         text: setup.interactionModes?.text !== false,
@@ -712,6 +739,7 @@ export default function Page() {
       setActiveSimulationDescription('')
       setActiveSimulationArchetype('clinical')
       setActivePatientVoice(DEFAULT_PATIENT_VOICE)
+      setActivePersona(null)
       setActiveSimulationIsPracticeMode(false)
       setActiveInteractionModes(DEFAULT_INTERACTION_MODES)
       setActiveConversationStarters([])
@@ -763,6 +791,7 @@ export default function Page() {
     setVoiceMode(false)
     setView('hub')
     setActivePatientVoice(DEFAULT_PATIENT_VOICE)
+    setActivePersona(null)
     setActiveSimulationArchetype('clinical')
     setActiveSimulationIsPracticeMode(false)
     setActiveInteractionModes(DEFAULT_INTERACTION_MODES)
@@ -968,8 +997,8 @@ export default function Page() {
                 <AvatarPlayer
                   ref={avatarPlayerRef}
                   voice={activePatientVoice}
-                  avatarCharacter={getAvatarCharacterForVoice(activePatientVoice)}
-                  avatarStyle="casual-sitting"
+                  avatarCharacter={activePersona?.avatarCharacter || getAvatarCharacterForVoice(activePatientVoice)}
+                  avatarStyle={activePersona?.avatarStyle || 'casual-sitting'}
                   onSpeakStart={() => setIsAiSpeaking(true)}
                   onSpeakEnd={() => setIsAiSpeaking(false)}
                   onError={(message) => {

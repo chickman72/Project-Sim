@@ -20,6 +20,15 @@ export type InteractionModes = {
   video: boolean
 }
 
+export type SimulationPersona = {
+  id: string
+  name: string
+  presentation: 'male' | 'female'
+  voice: string
+  avatarCharacter: 'harry' | 'lisa'
+  avatarStyle: string
+}
+
 export type DraftSimulation = {
   archetype: 'clinical' | 'tutor' | 'assistant'
   title: string
@@ -30,6 +39,7 @@ export type DraftSimulation = {
   assignedCohortId?: string
   isPracticeMode: boolean
   interactionModes: InteractionModes
+  personas: SimulationPersona[]
   conversationStarters: string[]
   rubric: RubricCriterion[]
   knowledgeBaseMode: 'standard' | 'strict_rag'

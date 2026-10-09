@@ -69,6 +69,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             video:
               (resource.archetype || 'clinical') === 'clinical' && resource.interactionModes?.video !== false,
           },
+          personas: Array.isArray(resource.personas)
+            ? resource.personas
+                .map((persona: any, index: number) => {
+                  const presentation = persona?.presentation === 'male' ? 'male' : 'female'
+                  return {
+                    id: String(persona?.id || `persona-${index + 1}`).trim() || `persona-${index + 1}`,
+                    name: String(persona?.name || '').trim(),
+                    presentation,
+                    voice:
+                      String(persona?.voice || '').trim() ||
+                      (presentation === 'male' ? 'en-US-GuyNeural' : 'en-US-JennyNeural'),
+                    avatarCharacter: presentation === 'male' ? 'harry' : 'lisa',
+                    avatarStyle: String(persona?.avatarStyle || 'casual-sitting').trim() || 'casual-sitting',
+                  }
+                })
+                .filter((persona: { name: string }) => persona.name.length > 0)
+            : [],
           uploadedDocuments: Array.isArray(resource.uploadedDocuments)
             ? resource.uploadedDocuments
                 .map((item: any) => ({
