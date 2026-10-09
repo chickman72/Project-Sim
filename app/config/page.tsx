@@ -80,7 +80,7 @@ export default function Page() {
   const [isDirty, setIsDirty] = useState(false)
   const [draftSim, setDraftSim] = useState<DraftSimulation>(defaultDraftSim)
   const [setups, setSetups] = useState<Simulation[]>([])
-  const [isEvaluationCriteriaOpen, setIsEvaluationCriteriaOpen] = useState(true)
+  const [isEvaluationCriteriaOpen, setIsEvaluationCriteriaOpen] = useState(false)
   const [cohorts, setCohorts] = useState<{ id: string; name: string }[]>([])
   const [studioTab, setStudioTab] = useState<'simulations' | 'userManagement'>('simulations')
   const [activeTab, setActiveTab] = useState<'simulations' | 'classes' | 'needsReview'>('simulations')
@@ -93,6 +93,7 @@ export default function Page() {
   const [deletingDocumentUrl, setDeletingDocumentUrl] = useState<string | null>(null)
   const [documentUploadError, setDocumentUploadError] = useState<string | null>(null)
   const [isDocumentUploadsOpen, setIsDocumentUploadsOpen] = useState(true)
+  const [isPatientPersonasOpen, setIsPatientPersonasOpen] = useState(false)
   const [isLivePreviewOpen, setIsLivePreviewOpen] = useState(false)
 
   const refreshCohorts = React.useCallback(async () => {
@@ -1108,39 +1109,60 @@ export default function Page() {
                   {draftSim.archetype === 'clinical' && (
                     <div className="mb-4 rounded-md border border-gray-200 bg-gray-50 p-4">
                       <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <h3 className="text-sm font-semibold text-gray-900">Patient Personas</h3>
+                        <button
+                          type="button"
+                          onClick={() => setIsPatientPersonasOpen((open) => !open)}
+                          className="min-w-0 flex-1 text-left"
+                          aria-expanded={isPatientPersonasOpen}
+                        >
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-gray-900">Patient Personas</h3>
+                            <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-semibold text-gray-600">
+                              {draftSim.personas.length}
+                            </span>
+                          </div>
                           <p className="mt-1 text-xs text-gray-600">
                             Add each possible patient so voice and avatar match the persona selected for the encounter.
                           </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const nextNumber = draftSim.personas.length + 1
-                            setDraftSim((prev) => ({
-                              ...prev,
-                              personas: [
-                                ...prev.personas,
-                                {
-                                  id: `persona-${Date.now()}-${nextNumber}`,
-                                  name: '',
-                                  presentation: 'female',
-                                  voice: 'en-US-JennyNeural',
-                                  avatarCharacter: 'lisa',
-                                  avatarStyle: 'casual-sitting',
-                                },
-                              ],
-                            }))
-                            setIsDirty(true)
-                          }}
-                          className="shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
-                        >
-                          Add Persona
                         </button>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const nextNumber = draftSim.personas.length + 1
+                              setDraftSim((prev) => ({
+                                ...prev,
+                                personas: [
+                                  ...prev.personas,
+                                  {
+                                    id: `persona-${Date.now()}-${nextNumber}`,
+                                    name: '',
+                                    presentation: 'female',
+                                    voice: 'en-US-JennyNeural',
+                                    avatarCharacter: 'lisa',
+                                    avatarStyle: 'casual-sitting',
+                                  },
+                                ],
+                              }))
+                              setIsPatientPersonasOpen(true)
+                              setIsDirty(true)
+                            }}
+                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                          >
+                            Add Persona
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsPatientPersonasOpen((open) => !open)}
+                            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                            aria-expanded={isPatientPersonasOpen}
+                          >
+                            {isPatientPersonasOpen ? 'Hide' : 'Show'}
+                          </button>
+                        </div>
                       </div>
 
-                      {draftSim.personas.length === 0 ? (
+                      {isPatientPersonasOpen && (draftSim.personas.length === 0 ? (
                         <p className="mt-3 text-sm text-gray-500">
                           No persona list configured. This scenario will continue using the fallback patient voice.
                         </p>
@@ -1240,7 +1262,7 @@ export default function Page() {
                             </div>
                           ))}
                         </div>
-                      )}
+                      ))}
                     </div>
                   )}
 
@@ -1329,16 +1351,25 @@ export default function Page() {
                     )}
                   </div>
                   {draftSim.archetype === 'clinical' && (
-                  <div className="mt-6 border border-gray-200 rounded-md p-4 bg-gray-50">
-                    <div className="flex items-center justify-between mb-3">
+                  <div className="mt-6 rounded-md border border-gray-200 bg-gray-50 p-4">
+                    <div className="flex items-center justify-between gap-3">
                       <button
                         type="button"
-                        onClick={() => setIsEvaluationCriteriaOpen(!isEvaluationCriteriaOpen)}
-                        className="text-sm font-semibold text-gray-900 hover:text-gray-700"
+                        onClick={() => setIsEvaluationCriteriaOpen((open) => !open)}
+                        className="min-w-0 flex-1 text-left"
+                        aria-expanded={isEvaluationCriteriaOpen}
                       >
-                        Evaluation Criteria ({draftSim.rubric.length}) {isEvaluationCriteriaOpen ? 'v' : '>'}
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-semibold text-gray-900">Evaluation Criteria</h3>
+                          <span className="rounded-full border border-gray-200 bg-white px-2 py-0.5 text-xs font-semibold text-gray-600">
+                            {draftSim.rubric.length}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-gray-600">
+                          Define the criteria used to evaluate a completed clinical encounter.
+                        </p>
                       </button>
-                      <div className="flex items-center gap-2">
+                      <div className="flex shrink-0 items-center gap-2">
                         <button
                           type="button"
                           onClick={() => {
@@ -1352,18 +1383,26 @@ export default function Page() {
                             setIsDirty(true)
                             setIsEvaluationCriteriaOpen(true)
                           }}
-                          className="px-3 py-1.5 bg-indigo-600 text-white text-xs rounded-md hover:bg-indigo-700"
+                          className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
                         >
                           Add Criterion
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEvaluationCriteriaOpen((open) => !open)}
+                          className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-100"
+                          aria-expanded={isEvaluationCriteriaOpen}
+                        >
+                          {isEvaluationCriteriaOpen ? 'Hide' : 'Show'}
                         </button>
                       </div>
                     </div>
                     {isEvaluationCriteriaOpen && (
                       <>
                         {draftSim.rubric.length === 0 ? (
-                          <p className="text-sm text-gray-500">No criteria added yet.</p>
+                          <p className="mt-3 text-sm text-gray-500">No criteria added yet.</p>
                         ) : (
-                          <div className="space-y-3">
+                          <div className="mt-3 space-y-3">
                             {draftSim.rubric.map((criterion, index) => (
                               <div key={criterion.id} className="rounded-md border border-gray-200 bg-white p-3">
                                 <div className="flex items-center justify-between mb-2">
@@ -1463,7 +1502,15 @@ export default function Page() {
             {/* Class Management Tab */}
             {activeTab === 'classes' && (
             <div className="bg-white rounded-lg shadow-md p-6">
-              <CohortManager instructorId={userId || ''} />
+              <CohortManager
+                instructorId={userId || ''}
+                onEditScenario={(scenarioCode) => {
+                  setStudioTab('simulations')
+                  setActiveTab('simulations')
+                  setSelectedSimId(scenarioCode)
+                  setCurrentView('editor')
+                }}
+              />
             </div>
             )}
 

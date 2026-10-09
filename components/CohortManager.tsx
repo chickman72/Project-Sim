@@ -24,15 +24,26 @@ interface Cohort {
   updatedAt: string
 }
 
+interface AssignedScenario {
+  code: string
+  title?: string
+  assignedCohortId?: string
+  visibility?: 'global' | 'cohort' | 'private'
+  isEnabled?: boolean
+  canEdit?: boolean
+}
+
 interface CohortManagerProps {
   instructorId: string
   onClose?: () => void
+  onEditScenario?: (scenarioCode: string) => void
 }
 
-export default function CohortManager({ instructorId, onClose }: CohortManagerProps) {
+export default function CohortManager({ instructorId, onClose, onEditScenario }: CohortManagerProps) {
   const [cohorts, setCohorts] = useState<Cohort[]>([])
   const [students, setStudents] = useState<Student[]>([])
   const [instructors, setInstructors] = useState<Instructor[]>([])
+  const [scenarios, setScenarios] = useState<AssignedScenario[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showCreateForm, setShowCreateForm] = useState(false)
@@ -49,23 +60,25 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
         setLoading(true)
         setError(null)
 
-        // Load cohorts
-        const cohortsRes = await fetch('/api/cohorts')
-        if (!cohortsRes.ok) throw new Error('Failed to load cohorts')
-        const cohortsData = await cohortsRes.json()
-        setCohorts(cohortsData)
-
-        // Load students and instructors
-        const [studentsRes, instructorsRes] = await Promise.all([
+        // Load cohorts, users, and scenario assignments together.
+        const [cohortsRes, studentsRes, instructorsRes, scenariosRes] = await Promise.all([
+          fetch('/api/cohorts'),
           fetch('/api/users?role=Student'),
           fetch('/api/users?role=Instructor'),
+          fetch('/api/cohorts/scenarios'),
         ])
+        if (!cohortsRes.ok) throw new Error('Failed to load cohorts')
         if (!studentsRes.ok) throw new Error('Failed to load students')
         if (!instructorsRes.ok) throw new Error('Failed to load instructors')
+        if (!scenariosRes.ok) throw new Error('Failed to load scenario assignments')
+        const cohortsData = await cohortsRes.json()
         const studentsData = await studentsRes.json()
         const instructorsData = await instructorsRes.json()
+        const scenariosData = await scenariosRes.json()
+        setCohorts(cohortsData)
         setStudents(studentsData)
         setInstructors(instructorsData)
+        setScenarios(Array.isArray(scenariosData) ? scenariosData : [])
       } catch (err: any) {
         setError(err.message || 'Failed to load data')
       } finally {
@@ -230,6 +243,13 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
     const instructor = instructors.find((user) => user.id === id)
     return instructor ? instructor.username : id
   }
+
+  const getAssignedScenarios = (cohortId: string) =>
+    scenarios.filter(
+      (scenario) =>
+        (scenario.visibility || (scenario.assignedCohortId ? 'cohort' : 'global')) === 'cohort' &&
+        scenario.assignedCohortId === cohortId,
+    )
 
   const showToast = (message: string) => {
     setToastMessage(message)
@@ -434,23 +454,28 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
         {cohorts.length === 0 ? (
           <p className="text-gray-500 text-center py-8">No cohorts yet. Create one to get started!</p>
         ) : (
-          <div className="grid gap-4">
+          <div className="grid gap-3 lg:grid-cols-2">
             {cohorts.map((cohort) => (
-              <div key={cohort.id} className="border border-gray-200 rounded-lg p-4 bg-white">
-                <div className="flex justify-between items-start mb-3">
-                  <div>
+              <div key={cohort.id} className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
                     <h4 className="text-base font-semibold">{cohort.name}</h4>
-                    <p className="text-sm text-gray-500">
-                      {cohort.studentIds.length} student{cohort.studentIds.length !== 1 ? 's' : ''}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      {getInstructorIds(cohort).length} instructor{getInstructorIds(cohort).length !== 1 ? 's' : ''}
-                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs font-medium text-gray-600">
+                      <span className="rounded-full bg-gray-100 px-2.5 py-1">
+                        {cohort.studentIds.length} student{cohort.studentIds.length !== 1 ? 's' : ''}
+                      </span>
+                      <span className="rounded-full bg-gray-100 px-2.5 py-1">
+                        {getInstructorIds(cohort).length} instructor{getInstructorIds(cohort).length !== 1 ? 's' : ''}
+                      </span>
+                      <span className="rounded-full bg-blue-50 px-2.5 py-1 text-blue-700">
+                        {getAssignedScenarios(cohort.id).length} scenario{getAssignedScenarios(cohort.id).length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     <button
                       onClick={() => handleCopyInviteLink(cohort.id)}
-                      className="px-3 py-1 text-sm bg-indigo-100 text-indigo-700 rounded hover:bg-indigo-200"
+                      className="rounded bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-700 hover:bg-indigo-200"
                     >
                       Copy Invite Link
                     </button>
@@ -459,21 +484,55 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
                         setEditingCohort(cohort)
                         setFormData({ name: cohort.name, selectedStudents: new Set<string>() })
                       }}
-                      className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                      className="rounded bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-200"
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => handleDeleteCohort(cohort.id)}
-                      className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200"
+                      className="rounded bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-200"
                     >
                       Delete
                     </button>
                   </div>
                 </div>
 
+                <div className="mt-3 border-t border-gray-100 pt-3">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Assigned scenarios</p>
+                  {getAssignedScenarios(cohort.id).length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {getAssignedScenarios(cohort.id).map((scenario) => (
+                        <button
+                          key={scenario.code}
+                          type="button"
+                          onClick={() => {
+                            if (scenario.canEdit !== false) onEditScenario?.(scenario.code)
+                          }}
+                          disabled={scenario.canEdit === false || !onEditScenario}
+                          title={scenario.canEdit === false ? 'This scenario is owned by another cohort manager.' : `Edit ${scenario.title || 'scenario'}`}
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                            scenario.isEnabled === false
+                              ? 'border-gray-200 bg-gray-50 text-gray-500'
+                              : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                          } ${
+                            scenario.canEdit === false
+                              ? 'cursor-not-allowed opacity-70'
+                              : 'cursor-pointer hover:ring-2 hover:ring-blue-200 focus:outline-none focus:ring-2 focus:ring-blue-400'
+                          }`}
+                        >
+                          <span className={`h-1.5 w-1.5 rounded-full ${scenario.isEnabled === false ? 'bg-gray-400' : 'bg-emerald-500'}`} />
+                          {scenario.title || 'Untitled Scenario'}
+                          {scenario.isEnabled === false ? ' (Off)' : ''}
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">No scenarios assigned.</p>
+                  )}
+                </div>
+
                 {/* Students in Cohort */}
-                <div className="space-y-2">
+                <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
                   <button
                     type="button"
                     onClick={() => toggleStudentList(cohort.id)}
@@ -505,9 +564,11 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
                   )}
                 </div>
 
-                <div className="mt-3 pt-3 border-t border-gray-200">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Instructors</p>
-                  <div className="space-y-1 mb-2">
+                <details className="mt-3 border-t border-gray-100 pt-3">
+                  <summary className="cursor-pointer text-sm font-medium text-gray-700 hover:text-gray-900">
+                    Instructors ({getInstructorIds(cohort).length})
+                  </summary>
+                  <div className="mt-2 space-y-1">
                     {getInstructorIds(cohort).map((id) => (
                       <div key={`${cohort.id}-instructor-${id}`} className="flex justify-between items-center text-sm bg-gray-50 p-2 rounded">
                         <span className="text-gray-700">
@@ -525,7 +586,7 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
                       </div>
                     ))}
                   </div>
-                  <details className="cursor-pointer">
+                  <details className="mt-2 cursor-pointer">
                     <summary className="text-sm text-blue-600 hover:text-blue-800 font-semibold">
                       + Add Co-Instructor
                     </summary>
@@ -548,10 +609,10 @@ export default function CohortManager({ instructorId, onClose }: CohortManagerPr
                       </div>
                     </div>
                   </details>
-                </div>
+                </details>
 
                 {/* Add Student Button */}
-                <div className="mt-3 pt-3 border-t border-gray-200">
+                <div className="mt-3 border-t border-gray-100 pt-3">
                   <details className="cursor-pointer">
                     <summary className="text-sm text-blue-600 hover:text-blue-800 font-semibold">
                       + Add Student
